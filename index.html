@@ -232,7 +232,7 @@ svg.i{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.7;stro
 <script>
 (function(){
   if(!window.FDBridge)return;
-  window.FD_NATIVE=true;window.FD_WEBVER=parseInt('5',10)||0;
+  window.FD_NATIVE=true;window.FD_WEBVER=parseInt('6',10)||0;
   var seq=0,pend={};
   window.__fdReply=function(id,ok,payload){var p=pend[id];if(!p)return;delete pend[id];ok?p.res(payload):p.rej(payload);};
   function call(op,args){return new Promise(function(res,rej){var id=++seq;pend[id]={res:res,rej:rej};args.id=id;args.op=op;FDBridge.postMessage(JSON.stringify(args));});}
@@ -292,6 +292,7 @@ const IC={
  close:'<path d="M6 6l12 12M18 6L6 18"/>',
  plus:'<path d="M12 5v14M5 12h14"/>',
  offset:'<path d="M4 18C8 8 16 8 20 18"/><path d="M4 12C8 2 16 2 20 12" stroke-dasharray="2 2.5"/>',
+ text:'<path d="M5 6V4h14v2M12 4v16M9 20h6"/>',
  group:'<rect x="3" y="3" width="18" height="18" rx="2" stroke-dasharray="3 2.5"/><rect x="7" y="7" width="5" height="5"/><circle cx="15" cy="15" r="2.6"/>',
  mline:'<path d="M3 15l7-7 5 5 6-6"/><path d="M3 20l7-7 5 5 6-6"/>',
  full:'<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>',
@@ -324,11 +325,12 @@ const DEFAULT_LAYERS=()=>[
  {name:"KOLON",color:30,on:true,lock:false},
  {name:"MERDIVEN",color:4,on:true,lock:false},
  {name:"CIZIM",color:5,on:true,lock:false},
+ {name:"YAZI",color:7,on:true,lock:false},
  {name:"OLCU",color:8,on:true,lock:false},
  {name:"ALTLIK",color:8,on:true,lock:false}];
 const S={
  proj:null, view:{x:300,y:200,z:.5}, tool:"select", tab:"el",
- opt:{wall:{thick:20,height:""},door:{kind:"single",width:90,height:"",widths:{single:90,double:160,sliding:120,industrial:300}},column:{shape:"rect",w:60,d:90,ang:0,height:""},stair:{kind:"straight",width:100,n:16,depth:28,landing:100,height:""},mline:{width:20,caps:true},offset:{dist:50}},offEnt:null,sketch:{strokes:[]},stairProp:null,
+ opt:{wall:{thick:20,height:""},door:{kind:"single",width:90,height:"",widths:{single:90,double:160,sliding:120,industrial:300}},column:{shape:"rect",w:60,d:90,ang:0,height:""},text:{h:30,ang:0},stair:{kind:"straight",width:100,n:16,depth:28,landing:100,height:""},mline:{width:20,caps:true},offset:{dist:50}},offEnt:null,sketch:{strokes:[]},stairProp:null,
  snapGrid:true, ortho:false, sel:new Set(), draft:null, cmd:null, cur:null, raw:null, snap:null, hoverDoor:null,
  undo:[], redo:[], pointers:new Map(), pan:null, box:null, drag:null
 };
@@ -464,6 +466,18 @@ function toggleGroup(){const sel=[...S.sel].map(byId).filter(e=>e&&editable(e));
   pushUndo();if(gi.whole){sel.forEach(e=>delete e.grp);toast("Grup çözüldü");}
   else{if(sel.length<2){toast("Gruplamak için en az iki eleman seç");S.undo.pop();updUndo();return;}const g=uid();sel.forEach(e=>e.grp=g);toast(sel.length+" eleman gruplandı");}
   markDirty();refreshPanels();renderDock();draw();}
+function textW(e){const c=g;c.save();c.font="600 100px 'IBM Plex Sans', system-ui, sans-serif";const w=c.measureText(e.txt||"").width/100*(+e.h||30);c.restore();return Math.max(w,(+e.h||30)*0.6);}
+function textBox(e){const h=+e.h||30,w=textW(e),a=-rad(e.ang||0);return [[0,h*0.25],[w,h*0.25],[w,-h],[0,-h]].map(p=>{const r=rot(p,a);return [e.x+r[0],e.y+r[1]];});}
+function txtLayer(){const L=S.proj.layers;if(!L.some(l=>l.name==="YAZI")){const i=L.findIndex(l=>l.name==="OLCU");L.splice(i<0?L.length:i,0,{name:"YAZI",color:7,on:true,lock:false});}const c=S.proj.cur;return ["0","DUVAR","KAPI","MERDIVEN","CIZIM","OLCU","ALTLIK","KOLON"].includes(c)?"YAZI":c;}
+function dxfText(t){return t.replace(/[\u0000-\u001f]/g," ").replace(/[^\x20-\x7e]/g,c=>"\\U+"+c.charCodeAt(0).toString(16).toUpperCase().padStart(4,"0"));}
+const TEXT_PRESETS=["Zemin kat","1. kat","2. kat","Bodrum kat","Ofis","Depo","Mutfak","WC","Koridor","Toplantı odası"];
+function textModal(e,p){const cur=e?e.txt:"";modal('<h2>'+(e?"Metni düzenle":"Metin ekle")+'</h2><div class="mrow"><label for="txIn">Yazı</label><input id="txIn" type="text" maxlength="120" value="'+esc(cur)+'" placeholder="ör. Zemin kat" style="height:48px;border:1px solid var(--line);border-radius:10px;background:var(--surface-2);padding:0 12px;font-size:16px"></div><div class="mrow"><label>Hızlı seçim</label><div style="display:flex;flex-wrap:wrap;gap:6px">'+TEXT_PRESETS.map(t=>'<button class="tog" type="button" data-pt="'+esc(t)+'">'+esc(t)+'</button>').join("")+'</div></div><div class="mfoot"><button class="btn" type="button" id="txNo">Vazgeç</button><button class="btn primary" type="button" id="txOk">'+(e?"Kaydet":"Ekle")+'</button></div>',close=>{
+  const inp=$("#txIn");setTimeout(()=>inp.focus(),50);
+  document.querySelectorAll("[data-pt]").forEach(b=>b.onclick=()=>{inp.value=b.dataset.pt;inp.focus();});
+  const ok=()=>{const t=inp.value.trim();if(!t){toast("Bir yazı gir");return;}close();pushUndo();
+    if(e){e.txt=t;}else{const o=S.opt.text;addEnt({type:"text",layer:txtLayer(),x:p[0],y:p[1],txt:t,h:+o.h||30,ang:+o.ang||0});}
+    markDirty();refreshPanels();draw();};
+  $("#txNo").onclick=close;$("#txOk").onclick=ok;inp.addEventListener("keydown",ev=>{if(ev.key==="Enter")ok();});});}
 function prims(e){
   switch(e.type){
    case "line":return [{k:"l",a:[e.x1,e.y1],b:[e.x2,e.y2]}];
@@ -474,6 +488,7 @@ function prims(e){
    case "stair":if(e.kind==="custom")return customStairPrims(e);if(e.kind==="sketch")return sketchPrims(e);return stairLocal(e).map(p=>p.k==="l"?{k:"l",a:xf(e,[p.a])[0],b:xf(e,[p.b])[0]}:{k:"p",pts:xf(e,p.pts),closed:p.closed});
    case "wall":{const out=[];for(const r of wallPolys(e))out.push({k:"p",pts:r,closed:true});return out;}
    case "column":return e.shape==="round"?[{k:"c",c:[e.x,e.y],r:(+e.w||60)/2}]:[{k:"p",pts:colPts(e),closed:true}];
+   case "text":return [{k:"p",pts:textBox(e),closed:true}];
    case "image":return [{k:"p",pts:[[e.x,e.y],[e.x+e.w,e.y],[e.x+e.w,e.y+e.h],[e.x,e.y+e.h]],closed:true}];
   }return [];}
 function primSegs(pr){const out=[];if(pr.k==="l")out.push([pr.a,pr.b]);else if(pr.k==="p"){for(let i=0;i<pr.pts.length-1;i++)out.push([pr.pts[i],pr.pts[i+1]]);if(pr.closed&&pr.pts.length>2)out.push([pr.pts[pr.pts.length-1],pr.pts[0]]);}else if(pr.k==="c"){const p=arcPts(pr.c,pr.r,0,2*Math.PI,48);for(let i=0;i<p.length-1;i++)out.push([p[i],p[i+1]]);}return out;}
@@ -504,7 +519,9 @@ function renderScene(c,w,h,view,o){ // o: {grid,bg,sel,lineScale}
   for(const e of walls){c.globalAlpha=e.op??1;c.fillStyle=mixHex(bgc,aci(layerOf(e.layer).color),.22);for(const r of wallPolys(e)){tracePrim(c,{k:"p",pts:r,closed:true},T);c.fill();}}
   c.globalAlpha=1;
   for(const e of list){if(e.type!=="column")continue;c.globalAlpha=e.op??1;const col=aci(layerOf(e.layer).color);c.fillStyle=mixHex(bgc,col,.55);c.strokeStyle=col;c.lineWidth=1.5*ls;for(const pr of prims(e)){tracePrim(c,pr,T);c.fill();c.stroke();}}
-  for(const e of list){if(e.type==="wall"||e.type==="image"||e.type==="column")continue;c.globalAlpha=e.op??1;c.strokeStyle=aci(layerOf(e.layer).color);c.lineWidth=(e.type==="door"?1.4:1.5)*ls;c.lineJoin="round";c.lineCap="round";for(const pr of prims(e)){tracePrim(c,pr,T);c.stroke();}}
+  for(const e of list){if(e.type!=="text"||!e.txt)continue;c.globalAlpha=e.op??1;c.fillStyle=aci(layerOf(e.layer).color);const q=T([e.x,e.y]);c.save();c.translate(q[0],q[1]);c.rotate(vr-rad(e.ang||0));c.font="600 "+Math.max(0.5,(+e.h||30)*z)+"px 'IBM Plex Sans', system-ui, sans-serif";c.textAlign="left";c.textBaseline="alphabetic";c.fillText(e.txt,0,0);c.restore();}
+  c.globalAlpha=1;
+  for(const e of list){if(e.type==="wall"||e.type==="image"||e.type==="column"||e.type==="text")continue;c.globalAlpha=e.op??1;c.strokeStyle=aci(layerOf(e.layer).color);c.lineWidth=(e.type==="door"?1.4:1.5)*ls;c.lineJoin="round";c.lineCap="round";for(const pr of prims(e)){tracePrim(c,pr,T);c.stroke();}}
   c.globalAlpha=1;
   // wall dimensions
   if(SET.dims&&layerOf("OLCU").on){c.font=(11*ls)+"px 'IBM Plex Mono', monospace";c.fillStyle=aci(layerOf("OLCU").color);c.textAlign="center";c.textBaseline="middle";
@@ -513,7 +530,7 @@ function renderScene(c,w,h,view,o){ // o: {grid,bg,sel,lineScale}
   if(o.sel){c.strokeStyle=cssv("--sel");c.lineWidth=2.5;c.setLineDash([6,4]);for(const id of S.sel){const e=byId(id);if(!e)continue;if(e.type==="wall"){const u=wallDir(e),n=[-u[1],u[0]],h=e.thick/2;tracePrim(c,{k:"p",pts:[[e.x1+n[0]*h,e.y1+n[1]*h],[e.x2+n[0]*h,e.y2+n[1]*h],[e.x2-n[0]*h,e.y2-n[1]*h],[e.x1-n[0]*h,e.y1-n[1]*h]],closed:true},T);c.stroke();}else for(const pr of prims(e)){tracePrim(c,pr,T);c.stroke();}}
     c.setLineDash([]);c.fillStyle=cssv("--sel");for(const id of S.sel){const e=byId(id);if(!e)continue;for(const p of grips(e)){const q=T(p);c.fillRect(q[0]-4,q[1]-4,8,8);}}}
   c.restore();}
-function grips(e){if(e.type==="wall"||e.type==="line")return [[e.x1,e.y1],[e.x2,e.y2]];if(e.type==="pline"||e.type==="rect"||e.type==="mline")return e.pts;if(e.type==="circle")return [[e.cx,e.cy]];if(e.type==="column")return [[e.x,e.y]];if(e.type==="door"||e.type==="stair")return e.kind==="custom"?e.pts:[[e.x,e.y]];if(e.type==="image")return [[e.x,e.y]];return [];}
+function grips(e){if(e.type==="wall"||e.type==="line")return [[e.x1,e.y1],[e.x2,e.y2]];if(e.type==="pline"||e.type==="rect"||e.type==="mline")return e.pts;if(e.type==="circle")return [[e.cx,e.cy]];if(e.type==="column"||e.type==="text")return [[e.x,e.y]];if(e.type==="door"||e.type==="stair")return e.kind==="custom"?e.pts:[[e.x,e.y]];if(e.type==="image")return [[e.x,e.y]];return [];}
 
 let raf=0;function draw(){if(raf)return;raf=requestAnimationFrame(()=>{raf=0;drawNow();});}
 function drawNow(){if(!S.proj)return;const dpr=window.devicePixelRatio||1;const w=W(),h=H();if(cv.width!==Math.round(w*dpr)||cv.height!==Math.round(h*dpr)){cv.width=Math.round(w*dpr);cv.height=Math.round(h*dpr);}
@@ -566,9 +583,10 @@ function snapCands(wm,ex,only){const out=[];for(const e of (only||ents())){if(!v
   else if(e.type==="column"){out.push({k:"cen",p:[e.x,e.y]});if(e.shape!=="round"){const q=colPts(e);q.forEach(p=>out.push({k:"end",p}));for(let i=0;i<4;i++)out.push({k:"mid",p:lerp(q[i],q[(i+1)%4],.5)});}else[0,1,2,3].forEach(i=>out.push({k:"end",p:[e.x+e.w/2*Math.cos(i*Math.PI/2),e.y+e.w/2*Math.sin(i*Math.PI/2)]}));}
   else if(e.type==="door"){out.push({k:"mid",p:[e.x,e.y]});}
   else if(e.type==="stair"){if(e.kind==="custom")e.pts.forEach(p=>out.push({k:"end",p}));else if(e.kind==="sketch")(e.outlines||[]).forEach(o=>o.pts.forEach(p=>out.push({k:"end",p})));else{out.push({k:"end",p:[e.x,e.y]});if(e.kind==="spiral")out.push({k:"cen",p:[e.x,e.y]});}}
+  else if(e.type==="text"){out.push({k:"end",p:[e.x,e.y]});}
   else if(e.type==="image"){out.push({k:"end",p:[e.x,e.y]},{k:"end",p:[e.x+e.w,e.y+e.h]});}}
  return out;}
-function nearestOn(p,tol,wm){let best=null;for(const e of ents()){if(!visible(e)||e.type==="image")continue;if(wm&&e.type==="wall"){const q=projSeg(p,[e.x1,e.y1],[e.x2,e.y2]).pt,dd=dist(p,q);if(dd<tol+e.thick/2&&(!best||dd<best.d))best={d:dd,p:q};continue;}let pr=e.type==="wall"?[{k:"l",a:[e.x1,e.y1],b:[e.x2,e.y2]}].concat(prims(e)):prims(e);
+function nearestOn(p,tol,wm){let best=null;for(const e of ents()){if(!visible(e)||e.type==="image"||e.type==="text")continue;if(wm&&e.type==="wall"){const q=projSeg(p,[e.x1,e.y1],[e.x2,e.y2]).pt,dd=dist(p,q);if(dd<tol+e.thick/2&&(!best||dd<best.d))best={d:dd,p:q};continue;}let pr=e.type==="wall"?[{k:"l",a:[e.x1,e.y1],b:[e.x2,e.y2]}].concat(prims(e)):prims(e);
   for(const x of pr){if(x.k==="c"){const d=dist(p,x.c);if(d<1e-6)continue;const q=[x.c[0]+(p[0]-x.c[0])/d*x.r,x.c[1]+(p[1]-x.c[1])/d*x.r];const dd=dist(p,q);if(dd<tol&&(!best||dd<best.d))best={d:dd,p:q};continue;}
     for(const s of primSegs(x)){const q=projSeg(p,s[0],s[1]).pt;const dd=dist(p,q);if(dd<tol&&(!best||dd<best.d))best={d:dd,p:q};}}}return best;}
 // Moving a selection: any of its own snap points (near or far corner, centre, mid) may land on a fixed point.
@@ -605,6 +623,7 @@ function hitTest(p,px){const tol=(px||10)/S.view.z;let best=null;
     if(e.type==="wall"){const q=projSeg(p,[e.x1,e.y1],[e.x2,e.y2]).pt;d=Math.max(0,dist(p,q)-e.thick/2);}
     else if(e.type==="image"){if(p[0]>=e.x&&p[0]<=e.x+e.w&&p[1]>=e.y&&p[1]<=e.y+e.h)d=tol*0.9;}
     else for(const pr of prims(e)){if(pr.k==="c")d=Math.min(d,Math.abs(dist(p,pr.c)-pr.r));else for(const s of primSegs(pr))d=Math.min(d,dist(p,projSeg(p,s[0],s[1]).pt));}
+    if(e.type==="text"){if(pointInPoly(p,textBox(e)))d=Math.min(d,tol*.3);}
     if(e.type==="column"){const inside=e.shape==="round"?dist(p,[e.x,e.y])<=e.w/2:pointInPoly(p,colPts(e));if(inside)d=Math.min(d,tol*.3);}
     if(e.type==="stair"&&e.kind!=="custom"){const b=bbox(e);if(p[0]>=b[0]&&p[0]<=b[2]&&p[1]>=b[1]&&p[1]<=b[3])d=Math.min(d,tol*.5);}
     if(e.type==="door")d=Math.min(d,dist(p,[e.x,e.y])<e.width/2?tol*.3:d);
@@ -631,6 +650,7 @@ function xformEnt(e,M){const det=M[0]*M[3]-M[1]*M[2],sc=Math.sqrt(Math.abs(det))
   if(e.type==="wall"||e.type==="line"){const a=ap(M,[e.x1,e.y1]),b=ap(M,[e.x2,e.y2]);e.x1=a[0];e.y1=a[1];e.x2=b[0];e.y2=b[1];if(e.type==="wall"&&Math.abs(sc-1)>1e-6)e.thick=Math.round(e.thick*sc*10)/10;}
   else if(e.type==="pline"||e.type==="rect"||e.type==="mline"){e.pts=e.pts.map(p=>ap(M,p));if(e.type==="mline"&&Math.abs(sc-1)>1e-6)e.width=Math.round(e.width*sc*10)/10;}
   else if(e.type==="circle"){const c=ap(M,[e.cx,e.cy]);e.cx=c[0];e.cy=c[1];e.r*=sc;}
+  else if(e.type==="text"){const c=ap(M,[e.x,e.y]);e.x=c[0];e.y=c[1];if(det>0){e.ang=Math.round(-deg(dirAng(rad(-(e.ang||0))))*10)/10;}if(Math.abs(sc-1)>1e-6)e.h=Math.round(e.h*sc*10)/10;}
   else if(e.type==="column"){const c=ap(M,[e.x,e.y]);e.x=c[0];e.y=c[1];e.ang=deg(dirAng(rad(-(e.ang||0))))*-1;if(Math.abs(sc-1)>1e-6){e.w=Math.round(e.w*sc*10)/10;e.d=Math.round(e.d*sc*10)/10;}}
   else if(e.type==="door"){const c=ap(M,[e.x,e.y]);e.x=c[0];e.y=c[1];e.ang=dirAng(e.ang);if(det<0)e.flip=-(e.flip||1);if(Math.abs(sc-1)>1e-6){e.width=Math.round(e.width*sc);}}
   else if(e.type==="stair"){if(e.kind==="sketch"){const f=p=>ap(M,p);(e.outlines||[]).forEach(o=>o.pts=o.pts.map(f));e.flights.forEach(fl=>{fl.treads=fl.treads.map(t=>t.map(f));fl.rect=fl.rect.map(f);});(e.landings||[]).forEach(l=>{l.pts=l.pts.map(f);});e.arrow=e.arrow.map(f);const c=f([e.x,e.y]);e.x=c[0];e.y=c[1];return;}if(e.kind==="custom"){e.pts=e.pts.map(p=>ap(M,p));}else{const c=ap(M,[e.x,e.y]);e.x=c[0];e.y=c[1];e.ang=dirAng(e.ang||0);if(det<0)e.m=-(e.m||1);}if(Math.abs(sc-1)>1e-6){e.width=Math.round(e.width*sc);e.depth=Math.round(e.depth*sc*10)/10;e.landing=Math.round((e.landing||100)*sc);}}
@@ -757,7 +777,7 @@ function trimAt(p){const tol=12/S.view.z;let target=null;
   for(const e of ents()){if((e.type!=="line"&&e.type!=="wall")||!editable(e))continue;let d=dist(p,projSeg(p,[e.x1,e.y1],[e.x2,e.y2]).pt);if(e.type==="wall")d=Math.max(0,d-e.thick/2);if(d<tol&&(!target||d<target.d))target={e,d};}
   if(!target){toast("Bir duvarın ya da çizginin silinecek parçasına dokun");return;}
   const e=target.e,a=[e.x1,e.y1],b=[e.x2,e.y2];const ts=[];
-  for(const o of ents()){if(o===e||!visible(o)||o.type==="image"||o.type==="door")continue;const pr=o.type==="wall"?(e.type==="wall"?[{k:"l",a:[o.x1,o.y1],b:[o.x2,o.y2]}]:prims(o).concat([{k:"l",a:[o.x1,o.y1],b:[o.x2,o.y2]}])):prims(o);
+  for(const o of ents()){if(o===e||!visible(o)||o.type==="image"||o.type==="door"||o.type==="text")continue;const pr=o.type==="wall"?(e.type==="wall"?[{k:"l",a:[o.x1,o.y1],b:[o.x2,o.y2]}]:prims(o).concat([{k:"l",a:[o.x1,o.y1],b:[o.x2,o.y2]}])):prims(o);
     for(const x of pr){if(x.k==="c"){circInter(a,b,x.c,x.r).forEach(t=>{if(t>1e-6&&t<1-1e-6)ts.push(t);});continue;}for(const s of primSegs(x)){const t=segInter(a,b,s[0],s[1]);if(t!=null&&t>1e-6&&t<1-1e-6)ts.push(t);}}}
   const tp=projSeg(p,a,b).t;let lo=0,hi=1;for(const t of ts){if(t<tp&&t>lo)lo=t;if(t>tp&&t<hi)hi=t;}
   if(lo<1e-6&&hi>1-1e-6){toast("Bu parçayı kesen başka duvar ya da çizgi yok");return;}
@@ -770,7 +790,7 @@ function trimAt(p){const tol=12/S.view.z;let target=null;
 /* ================= tools & dock ================= */
 const TABS={
  el:[["select","Seç"],["wall","Duvar"],["column","Kolon"],["door","Kapı"],["stair","Merdiven"]],
- dr:[["select","Seç"],["line","Çizgi"],["pline","Polyline"],["mline","Çoklu çizgi"],["circle","Daire"],["rect","Dikdörtgen"],["trim","Kırp"]],
+ dr:[["select","Seç"],["line","Çizgi"],["pline","Polyline"],["mline","Çoklu çizgi"],["circle","Daire"],["rect","Dikdörtgen"],["text","Metin"],["trim","Kırp"]],
  ed:[["select","Seç"],["move","Taşı"],["rotate","Döndür"],["scale","Ölçekle"],["mirror","Aynala"],["copy","Çoğalt"],["offset","Ötele"],["group","Grupla"],["erase","Sil"]]};
 function renderDock(){$("#tabs").querySelectorAll("button").forEach(b=>b.setAttribute("aria-selected",b.dataset.tab===S.tab?"true":"false"));
   $("#tools").style.gridTemplateColumns="repeat("+(TABS[S.tab].length<=5?TABS[S.tab].length:TABS[S.tab].length>=9?5:4)+",minmax(0,1fr))";
@@ -815,6 +835,7 @@ function renderCtx(){const C=$("#ctx");let h="";
   else if(S.tool==="offset"){const o=S.opt.offset;h='<span class="t">Ötele</span>'+fld("ofD","Mesafe",o.dist,"cm")+'<span class="hint">'+(S.offEnt?"Hangi tarafa ötelenecek? O tarafa dokun":"Ötelenecek çizgi, duvar, daire ya da polyline'a dokun")+'</span>';}
   else if(S.tool==="circle"){h='<span class="t">Daire</span><span class="hint">Merkeze dokun, kalemi uzatarak yarıçapı ver</span>'+fld("oR","Yarıçap","","cm");}
   else if(S.tool==="rect"){h='<span class="t">Dikdörtgen</span><span class="hint">Bir köşeden karşı köşeye sürükle</span>';}
+  else if(S.tool==="text"){const o=S.opt.text;h='<span class="t">Metin</span>'+fld("tH","Yazı boyu",o.h,"cm")+fld("tA","Açı",o.ang,"°")+'<span class="hint">Yazının başlayacağı yere dokun; Zemin kat, 1. kat, mahal adı…</span>';}
   else if(S.tool==="trim"){h='<span class="t">Kırp</span><span class="hint">Silinecek duvar ya da çizgi parçasına dokun; keseni duvar ekseni ve çizgilerdir</span>';}
   if(h)h='<button class="ib xbtn" id="ctxX" type="button" aria-label="Komuttan çık">'+ico("close")+'</button>'+h;
   C.innerHTML=h;bindCtx();}
@@ -823,6 +844,7 @@ function bindCtx(){const on=(id,ev,fn)=>{const el=document.getElementById(id);if
   const numOpt=(id,obj,key)=>on(id,"input",e=>{obj[key]=e.target.value===""?"":+e.target.value;if(S.tool==="stair"){updateStairReadout();if(S.stairProp&&(key==="width"||key==="depth"))rebuildProp(true);}draw();});
   numOpt("oThick",S.opt.wall,"thick");if(S.tool==="wall")numOpt("oH",S.opt.wall,"height");
   if(S.tool==="door"){on("oW","input",e=>{const v=e.target.value===""?"":+e.target.value;S.opt.door.width=v;if(v>0)rememberDoor(S.opt.door.kind,v);draw();});numOpt("oH",S.opt.door,"height");}
+  numOpt("tH",S.opt.text,"h");numOpt("tA",S.opt.text,"ang");
   numOpt("cW",S.opt.column,"w");numOpt("cD",S.opt.column,"d");numOpt("cA",S.opt.column,"ang");if(S.tool==="column")numOpt("cH",S.opt.column,"height");
   on("cShape","click",e=>{const b=e.target.closest("button");if(!b)return;S.opt.column.shape=b.dataset.k;renderCtx();draw();});
   numOpt("sW",S.opt.stair,"width");numOpt("sN",S.opt.stair,"n");numOpt("sD",S.opt.stair,"depth");numOpt("sL",S.opt.stair,"landing");numOpt("sH",S.opt.stair,"height");
@@ -948,6 +970,7 @@ function toolUp(raw,e){const p=S.cur;const moved=downInfo&&downInfo.moved;
   if(S.tool==="circle"){const D=S.draft;if(!D)return;const r=dist(D.c,p);if(r*S.view.z<4)return;pushUndo();addEnt({type:"circle",layer:drawLayer(),cx:D.c[0],cy:D.c[1],r});S.draft=null;return;}
   if(S.tool==="rect"){const D=S.draft;if(!D)return;const a=D.a;if(Math.abs(p[0]-a[0])<0.5||Math.abs(p[1]-a[1])<0.5)return;pushUndo();addEnt({type:"rect",layer:drawLayer(),pts:[a,[p[0],a[1]],p,[a[0],p[1]]],closed:true});S.draft=null;return;}
   if(S.tool==="trim"){trimAt(raw);return;}
+  if(S.tool==="text"){textModal(null,p);return;}
   if(S.tool==="column"){const o=S.opt.column;pushUndo();addEnt(Object.assign(colGhost(p),{layer:colLayer()}));renderCtx();return;}
   if(S.tool==="door"){const d=doorGhost(raw);if(!d.wallId){toast("Kapıyı bir duvarın üzerine bırak");return;}pushUndo();d.layer=layerFor("KAPI");addEnt(d);S.sel=new Set([d.id]);refreshPanels();return;}
   if(S.tool==="stair"){const o=S.opt.stair;pushUndo();const st=addEnt({type:"stair",kind:o.kind,layer:layerFor("MERDIVEN"),x:p[0],y:p[1],ang:0,m:1,width:+o.width||100,n:+o.n||16,depth:+o.depth||28,landing:+o.landing||100,height:o.height});S.sel=new Set([st.id]);setTool("select");refreshPanels();return;}}
@@ -962,7 +985,7 @@ document.addEventListener("keydown",e=>{if(!S.proj||$("#editor").hidden)return;c
 window.addEventListener("resize",()=>draw());
 
 /* ================= properties panel ================= */
-const TYPE_NAME={wall:"Duvar",door:"Kapı",column:"Kolon",stair:"Merdiven",line:"Çizgi",pline:"Polyline",mline:"Çoklu çizgi",rect:"Dikdörtgen",circle:"Daire",image:"Altlık"};
+const TYPE_NAME={wall:"Duvar",door:"Kapı",column:"Kolon",text:"Metin",stair:"Merdiven",line:"Çizgi",pline:"Polyline",mline:"Çoklu çizgi",rect:"Dikdörtgen",circle:"Daire",image:"Altlık"};
 function prow(label,inner){return '<div class="row"><span>'+label+'</span>'+inner+'</div>';}
 function pnum(key,val,step){return '<input type="number" inputmode="decimal" data-k="'+key+'" value="'+(val===""||val==null?"":Math.round(val*10)/10)+'"'+(step?' step="'+step+'"':'')+'>';}
 function refreshPanels(){renderProps();if(!$("#layers").hidden)renderLayers();}
@@ -980,6 +1003,7 @@ function renderProps(){const P=$("#props");if(!S.sel.size||!$("#layers").hidden&
     if(e.type==="door"){h+=prow("Tür",'<select data-k="kind">'+DOOR_KINDS.map(([k,l])=>'<option value="'+k+'"'+(e.kind===k?" selected":"")+'>'+l+'</option>').join("")+'</select>')+prow("Genişlik",pnum("width",e.width))+prow("Yükseklik",pnum("height",e.height))+'<div class="cmds" style="grid-template-columns:1fr 1fr"><button type="button" data-act="flip">Açılış yönü</button><button type="button" data-act="hand">Menteşe tarafı</button></div>';}
     if(e.type==="stair"){const b=bbox(e);if(e.kind==="sketch"){h+=prow("Tür",'<span>Detaylı karalama</span>')+prow("Basamak",'<span class="num">'+e.n+'</span>')+prow("Toplam yükseklik",pnum("height",e.height))+prow("Ölçü",'<span class="num">'+fmt(b[2]-b[0])+" × "+fmt(b[3]-b[1])+' cm</span>')+'<div class="cmds" style="grid-template-columns:1fr"><button type="button" data-act="srev">Çıkış yönünü ters çevir</button></div>';}
       else{h+=prow("Tür",'<span>'+(STAIR_KINDS.find(k=>k[0]===e.kind)||["","Serbest"])[1]+'</span>')+prow("Kol genişliği",pnum("width",e.width))+(e.kind!=="custom"?prow("Basamak",pnum("n",e.n)):"")+prow("Basamak derinliği",pnum("depth",e.depth))+(e.kind==="U"?prow("Sahanlık",pnum("landing",e.landing)):"")+prow("Toplam yükseklik",pnum("height",e.height))+(e.kind!=="custom"?prow("Açı",pnum("sang",(deg(-(e.ang||0))+360)%360)):"");h+=prow("Ölçü",'<span class="num">'+fmt(b[2]-b[0])+" × "+fmt(b[3]-b[1])+' cm</span>');}}
+    if(e.type==="text"){h+=prow("Yazı",'<input type="text" data-k="txt" value="'+esc(e.txt||"")+'" style="font-family:var(--f-ui)">')+prow("Yazı boyu",pnum("th",e.h))+prow("Açı",pnum("ta",e.ang||0));}
     if(e.type==="column"){h+=prow("Biçim",'<select data-k="shape"><option value="rect"'+(e.shape!=="round"?" selected":"")+'>Dikdörtgen</option><option value="round"'+(e.shape==="round"?" selected":"")+'>Yuvarlak</option></select>')+(e.shape==="round"?prow("Çap",pnum("cw",e.w)):prow("Genişlik",pnum("cw",e.w))+prow("Derinlik",pnum("cd",e.d))+prow("Açı",pnum("ca",e.ang||0)))+prow("Yükseklik",pnum("height",e.height));}
     if(e.type==="image"){h+=prow("Genişlik",pnum("iw",e.w));}}
   if(sel.length>1||gi.any)h+='<div class="cmds" style="grid-template-columns:1fr"><button type="button" id="pGrp">'+ico("group")+(gi.whole?"Grubu çöz":"Grupla")+'</button></div>';
@@ -999,6 +1023,7 @@ function renderProps(){const P=$("#props");if(!S.sel.size||!$("#layers").hidden&
       if((k==="rw"||k==="rh")&&n>0){const b=bbox(e);const sx=k==="rw"?n/(b[2]-b[0]):1,sy=k==="rh"?n/(b[3]-b[1]):1;e.pts=e.pts.map(p=>[b[0]+(p[0]-b[0])*sx,b[1]+(p[1]-b[1])*sy]);}
       if(k==="closed")e.closed=v==="1";if(k==="caps")e.caps=v==="1";
       if(k==="kind")e.kind=v;if(k==="width"&&n>0){e.width=n;if(e.type==="door")rememberDoor(e.kind,n);}if(k==="n"&&n>1)e.n=Math.round(n);if(k==="depth"&&n>0)e.depth=n;if(k==="landing"&&n>0)e.landing=n;
+      if(e.type==="text"){if(k==="txt"&&v.trim())e.txt=v.trim();if(k==="th"&&n>0)e.h=n;if(k==="ta")e.ang=n||0;}
       if(e.type==="column"){if(k==="cw"&&n>0)e.w=n;if(k==="cd"&&n>0)e.d=n;if(k==="ca")e.ang=n||0;if(k==="shape")e.shape=v;}
       if(k==="sang")e.ang=-rad(n);
       if(k==="iw"&&n>0){const r=e.h/e.w;e.w=n;e.h=n*r;}}
@@ -1070,7 +1095,7 @@ function buildDXF(threeD,outl){const o=[];const P=(c,v)=>{o.push(String(c));o.pu
   P(0,"SECTION");P(2,"ENTITIES");
   const LINE=(lay,a,b,z0,th)=>{P(0,"LINE");P(8,lay);P(10,N(a[0]));P(20,N(-a[1]));P(30,N(z0||0));P(11,N(b[0]));P(21,N(-b[1]));P(31,N(z0||0));if(th)P(39,N(th));};
   const PL=(lay,pts,closed,z0,th)=>{P(0,"POLYLINE");P(8,lay);P(66,1);P(10,0);P(20,0);P(30,N(z0||0));P(70,closed?1:0);if(th)P(39,N(th));for(const p of pts){P(0,"VERTEX");P(8,lay);P(10,N(p[0]));P(20,N(-p[1]));P(30,N(z0||0));}P(0,"SEQEND");P(8,lay);};
-  const TXT=(lay,p,h,txt,angD)=>{P(0,"TEXT");P(8,lay);P(10,N(p[0]));P(20,N(-p[1]));P(30,0);P(40,N(h));P(1,txt);P(50,N(angD));P(72,1);P(11,N(p[0]));P(21,N(-p[1]));P(31,0);};
+  const TXT=(lay,p,h,txt,angD,left)=>{P(0,"TEXT");P(8,lay);P(10,N(p[0]));P(20,N(-p[1]));P(30,0);P(40,N(h));P(1,txt);P(50,N(angD));if(!left){P(72,1);P(11,N(p[0]));P(21,N(-p[1]));P(31,0);}};
   for(const e of ents()){if(!visible(e)||e.type==="image")continue;const lay=asciiName(e.layer);
     if(e.type==="wall"){const H3=threeD?(+e.height||280):0;const u=wallDir(e),n=[-u[1],u[0]],h=e.thick/2;const free0=endExt(e,[e.x1,e.y1])===0,free1=endExt(e,[e.x2,e.y2])===0;const L=wallLen(e);
       const pt=(s,side)=>[e.x1+u[0]*s+n[0]*h*side,e.y1+u[1]*s+n[1]*h*side];
@@ -1078,6 +1103,7 @@ function buildDXF(threeD,outl){const o=[];const P=(c,v)=>{o.push(String(c));o.pu
         const cap0=s[0]>0.5||free0,cap1=s[1]<L-0.5||free1;if(cap0)LINE(lay,pt(s[0],1),pt(s[0],-1),0,H3);if(cap1)LINE(lay,pt(s[1],1),pt(s[1],-1),0,H3);}
       if(threeD)for(const d of ents().filter(d=>d.type==="door"&&d.wallId===e.id)){const dh=+d.height||210;if(H3>dh){const t=(d.x-e.x1)*u[0]+(d.y-e.y1)*u[1];const a=t-d.width/2,bq=t+d.width/2;LINE(lay,pt(a,1),pt(bq,1),dh,H3-dh);LINE(lay,pt(a,-1),pt(bq,-1),dh,H3-dh);}}
       if(SET.dims){let a=Math.atan2(-u[1],u[0]);let ad=deg(a);if(ad>90)ad-=180;if(ad<-90)ad+=180;TXT(asciiName(layerOf("OLCU").name),[(e.x1+e.x2)/2+n[0]*(h+18),(e.y1+e.y2)/2+n[1]*(h+18)],12,fmt(L),ad);}continue;}
+    if(e.type==="text"){if(e.txt)TXT(lay,[e.x,e.y],+e.h||30,dxfText(e.txt),e.ang||0,true);continue;}
     if(e.type==="column"){const hc=threeD?(+e.height||280):0;if(e.shape==="round"){P(0,"CIRCLE");P(8,lay);P(10,N(e.x));P(20,N(-e.y));P(30,0);P(40,N(e.w/2));if(hc)P(39,N(hc));}
       else{const q=colPts(e);PL(lay,q,true,0,hc);P(0,"SOLID");P(8,lay);[q[0],q[1],q[3],q[2]].forEach((p,i)=>{P(10+i,N(p[0]));P(20+i,N(-p[1]));P(30+i,0);});if(hc)P(39,N(hc));}continue;}
     if(e.type==="circle"){P(0,"CIRCLE");P(8,lay);P(10,N(e.cx));P(20,N(-e.cy));P(30,0);P(40,N(e.r));continue;}
@@ -1154,6 +1180,7 @@ async function open3D(){const root=document.createElement("div");root.id="v3d";r
       else if(e.kind==="L"){const n1=clamp(Math.round(e.n1||Math.ceil(n/2)),1,n-1),n2=n-n1,X=n1*gd;for(let k=0;k<n1;k++)step(k*gd,0,gd,W2,k);step(X,0,W2,W2,n1-1);for(let k=0;k<n2;k++)step(X,W2+k*gd,W2,gd,n1+k);}
       else if(e.kind==="U"){const gap=e.gap??10,n1=clamp(Math.round(e.n1||Math.ceil(n/2)),1,n-1),n2=n-n1,X=n1*gd,Lg=+e.landing||W2;for(let k=0;k<n1;k++)step(k*gd,0,gd,W2,k);step(X,0,Lg,2*W2+gap,n1-1);for(let k=0;k<n2;k++)step(X-(k+1)*gd,W2+gap,gd,W2,n1+k);}
       else if(e.kind==="spiral"){const ri=e.ri||15,ro=W2+ri,sw=e.sweep||Math.min(2*Math.PI,n*rad(22.5));for(let k=0;k<n;k++){const a=sw*(k+.5)/n,rm=(ri+ro)/2;const c=xf(e,[[rm*Math.cos(a),rm*Math.sin(a)*m]])[0];const len=W2,dep=Math.max(8,rm*sw/n);box(c[0],c[1],len,dep,0,rz*(k+1),(e.ang||0)+a*m,stairMat);}}}
+    else if(e.type==="text"){}
     else{for(const pr of prims(e)){const pts=pr.k==="c"?arcPts(pr.c,pr.r,0,2*Math.PI,48):pr.k==="l"?[pr.a,pr.b]:(pr.closed?pr.pts.concat([pr.pts[0]]):pr.pts);const geo=new THREE.BufferGeometry().setFromPoints(pts.map(p=>new THREE.Vector3(p[0],1,p[1])));scene.add(new THREE.Line(geo,lineMat));}}}
   const b=extents(ents());const cx=(b[0]+b[2])/2,cz=(b[1]+b[3])/2,size=Math.max(b[2]-b[0],b[3]-b[1],500);
   const gridH=new THREE.GridHelper(Math.ceil(size*2/100)*100,Math.ceil(size*2/100),new THREE.Color(cssv("--grid-strong")),new THREE.Color(cssv("--grid")));gridH.position.set(cx,0,cz);scene.add(gridH);
