@@ -232,7 +232,7 @@ svg.i{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.7;stro
 <script>
 (function(){
   if(!window.FDBridge)return;
-  window.FD_NATIVE=true;window.FD_WEBVER=parseInt('8',10)||0;
+  window.FD_NATIVE=true;window.FD_WEBVER=parseInt('9',10)||0;
   var seq=0,pend={};
   window.__fdReply=function(id,ok,payload){var p=pend[id];if(!p)return;delete pend[id];ok?p.res(payload):p.rej(payload);};
   function call(op,args){return new Promise(function(res,rej){var id=++seq;pend[id]={res:res,rej:rej};args.id=id;args.op=op;FDBridge.postMessage(JSON.stringify(args));});}
@@ -565,6 +565,9 @@ function drawOverlay(){const c=g,z=S.view.z,T=w2s;Tz=z;const acc=cssv("--accent"
     const M=cmdMatrix(S.cmd,cur);if(M){c.globalAlpha=.6;for(const id of S.sel){const e=byId(id);if(!e)continue;const t=JSON.parse(JSON.stringify(e));xformEnt(t,M);for(const pr of prims(t)){tracePrim(c,pr,T);c.stroke();}}c.globalAlpha=1;}}
   // window select box
   if(S.box){const A=S.box.a,B=S.box.b;c.fillStyle=sel+"22";c.strokeStyle=sel;c.lineWidth=1;c.setLineDash([4,3]);tracePrim(c,{k:"p",pts:[A,[B[0],A[1]],B,[A[0],B[1]]],closed:true},w2s);c.fill();c.stroke();c.setLineDash([]);}
+  // alignment references and the active alignment line
+  if(S.track&&S.track.length&&(S.tool!=="select"||S.drag||S.cmd)){c.strokeStyle=sel;c.lineWidth=1.5;for(const R of S.track){const q=T(R.p);c.beginPath();c.moveTo(q[0]-6,q[1]);c.lineTo(q[0]+6,q[1]);c.moveTo(q[0],q[1]-6);c.lineTo(q[0],q[1]+6);c.stroke();}}
+  if(S.snap&&S.snap.k==="track"&&S.snap.refs){c.strokeStyle=sel;c.lineWidth=1.2;c.setLineDash([6,5]);const q=T(S.snap.p);for(const r of S.snap.refs){const a=T(r);const dx=q[0]-a[0],dy=q[1]-a[1],L=Math.hypot(dx,dy)||1;c.beginPath();c.moveTo(a[0]-dx/L*30,a[1]-dy/L*30);c.lineTo(q[0]+dx/L*60,q[1]+dy/L*60);c.stroke();}c.setLineDash([]);label(S.snap.p,"Hiza");}
   // snap marker
   if(S.snap&&cur&&(S.tool!=="select"||S.drag||S.cmd)){const q=T(S.snap.p);c.strokeStyle=S.snap.k==="grid"?cssv("--muted"):acc;c.lineWidth=2;const r=7;c.beginPath();
     if(S.snap.k==="end")c.rect(q[0]-r,q[1]-r,2*r,2*r);else if(S.snap.k==="mid"){c.moveTo(q[0],q[1]-r);c.lineTo(q[0]+r,q[1]+r*.8);c.lineTo(q[0]-r,q[1]+r*.8);c.closePath();}else if(S.snap.k==="cen")c.arc(q[0],q[1],r,0,Math.PI*2);else if(S.snap.k==="grid"){c.moveTo(q[0]-r,q[1]-r);c.lineTo(q[0]+r,q[1]+r);c.moveTo(q[0]+r,q[1]-r);c.lineTo(q[0]-r,q[1]+r);}else if(S.snap.k==="near"){c.moveTo(q[0]-r,q[1]-r);c.lineTo(q[0]+r,q[1]-r);c.lineTo(q[0]-r,q[1]+r);c.lineTo(q[0]+r,q[1]+r);c.closePath();}else if(S.snap.k==="int"){c.moveTo(q[0]-r,q[1]-r);c.lineTo(q[0]+r,q[1]+r);c.moveTo(q[0]+r,q[1]-r);c.lineTo(q[0]-r,q[1]+r);}
@@ -592,12 +595,30 @@ function nearestOn(p,tol,wm){let best=null;for(const e of ents()){if(!visible(e)
 // Moving a selection: any of its own snap points (near or far corner, centre, mid) may land on a fixed point.
 function buildMoveSnap(){const sel=[...S.sel].map(byId).filter(Boolean);const src=snapCands(false,null,sel).filter(c=>c.k!=="grid"&&c.k!=="near");
   const tgt=snapCands(false,S.sel).filter(c=>c.k==="end"||c.k==="mid"||c.k==="cen");return {src,tgt,last:null};}
+/* ---------- alignment tracking (AutoCAD-style): rest the pen on a snap point to pick it up as a reference ---------- */
+function trackReset(){S.track=[];clearTimeout(S.acqT);S.acqKey=null;}
+function trackDirs(p){const dirs=[[1,0],[0,1]];for(const e of ents()){if(!visible(e))continue;if(e.type==="wall"||e.type==="line"){if(dist(p,[e.x1,e.y1])<1||dist(p,[e.x2,e.y2])<1){const L=Math.hypot(e.x2-e.x1,e.y2-e.y1)||1,u=[(e.x2-e.x1)/L,(e.y2-e.y1)/L];if(Math.abs(u[0])>1e-3&&Math.abs(u[1])>1e-3)dirs.push(u,[-u[1],u[0]]);}}}return dirs;}
+function scheduleAcq(p,src){const key=p[0].toFixed(1)+","+p[1].toFixed(1)+(src?"|"+src[0].toFixed(1)+","+src[1].toFixed(1):"");if(S.acqKey===key)return;clearTimeout(S.acqT);S.acqKey=key;
+  S.acqT=setTimeout(()=>{if(!S.track)S.track=[];if(S.track.some(t=>dist(t.p,p)<0.5&&(!src||(t.src&&dist(t.src,src)<0.5))))return;S.track.push({p:p.slice(),src:src?src.slice():null,dirs:trackDirs(p)});if(S.track.length>2)S.track.shift();draw();},350);}
+function cancelAcq(){clearTimeout(S.acqT);S.acqKey=null;}
+// q = point to align, line = optional {o,u} it must stay on (ortho); refs: acquired points (filtered by source when moving)
+function alignTo(q,line,refs,tol){if(!refs||!refs.length)return null;const L=[];refs.forEach(R=>R.dirs.forEach(u=>L.push({o:R.p,u})));let best=null;
+  const inter=(a,b)=>{const den=a.u[0]*b.u[1]-a.u[1]*b.u[0];if(Math.abs(den)<1e-6)return null;const w=[b.o[0]-a.o[0],b.o[1]-a.o[1]];const t=(w[0]*b.u[1]-w[1]*b.u[0])/den;return [a.o[0]+a.u[0]*t,a.o[1]+a.u[1]*t];};
+  if(line){for(const l of L){if(dist(l.o,q)<1e-6)continue;const X=inter(line,l);if(!X)continue;const d=dist(X,q);if(d<tol&&(!best||d<best.d))best={d,p:X,refs:[l.o]};}return best;}
+  for(let i=0;i<L.length;i++)for(let j=i+1;j<L.length;j++){if(dist(L[i].o,L[j].o)<1e-6)continue;const X=inter(L[i],L[j]);if(!X)continue;const d=dist(X,q);if(d<tol*1.2&&(!best||d<best.d))best={d:d-tol,p:X,refs:[L[i].o,L[j].o]};}
+  if(best)return best;
+  for(const l of L){const w=[q[0]-l.o[0],q[1]-l.o[1]];const t=w[0]*l.u[0]+w[1]*l.u[1];const X=[l.o[0]+l.u[0]*t,l.o[1]+l.u[1]*t];const d=dist(X,q);if(d<tol&&dist(X,l.o)>tol&&(!best||d<best.d))best={d,p:X,refs:[l.o]};}
+  return best;}
 function moveSnap(mv,d){const tol=16/S.view.z;let best=null;
   if(S.ortho){d=Math.abs(d[0])>=Math.abs(d[1])?[d[0],0]:[0,d[1]];}
   for(const s of mv.src){const q=[s.p[0]+d[0],s.p[1]+d[1]];
     for(const t of mv.tgt){let tl=tol;if(mv.last&&mv.last.s===s&&mv.last.t===t)tl*=1.5;const dd=dist(q,t.p);if(dd<tl&&(!best||dd<best.dd))best={s,t,dd};}}
   mv.last=best?{s:best.s,t:best.t}:null;
-  if(!best)return {d,snap:null};
+  if(best)scheduleAcq(best.t.p,best.s.p);else cancelAcq();
+  if(!best){const refs=(S.track||[]).filter(R=>R.src);let al=null,srcP=null;
+    for(const R of refs){const q=[R.src[0]+d[0],R.src[1]+d[1]];const line=S.ortho?{o:R.src,u:Math.abs(d[0])>=Math.abs(d[1])?[1,0]:[0,1]}:null;const a=alignTo(q,line,[R],tol);if(a&&(!al||a.d<al.d)){al=a;srcP=R.src;}}
+    if(al)return {d:[al.p[0]-srcP[0],al.p[1]-srcP[1]],snap:{k:"track",p:al.p,refs:al.refs}};
+    return {d,snap:null};}
   let nd=[best.t.p[0]-best.s.p[0],best.t.p[1]-best.s.p[1]];if(S.ortho){nd=Math.abs(d[0])>=Math.abs(d[1])?[nd[0],0]:[0,nd[1]];}
   return {d:nd,snap:{k:best.t.k,p:best.t.p}};}
 function snapPoint(raw,from){const tol=16/S.view.z;let p=raw.slice();
@@ -613,6 +634,7 @@ function snapPoint(raw,from){const tol=16/S.view.z;let p=raw.slice();
   if(ex){S.lastSnap=best?best.p:null;if(!best)return {k:null,p};}
   S.lastSnap=best?best.p:null;
   if(best){if(best.k==="wend")best.k="end";let q=best.p;if(S.ortho&&from){const dx=Math.abs(q[0]-from[0]),dy=Math.abs(q[1]-from[1]);q=dx>=dy?[q[0],from[1]]:[from[0],q[1]];}return {k:best.k,p:q};}
+  {const line=S.ortho&&from?{o:from,u:p[1]===from[1]?[1,0]:[0,1]}:null;const al=alignTo(p,line,(S.track||[]).filter(R=>!R.src),tol);if(al)return {k:"track",p:al.p,refs:al.refs};}
   if(S.snapGrid){const gp=[Math.round(p[0]/100)*100,Math.round(p[1]/100)*100];if(S.ortho&&from){if(p[1]===from[1]&&Math.abs(gp[0]-p[0])<tol)return {k:"grid",p:[gp[0],p[1]]};if(p[0]===from[0]&&Math.abs(gp[1]-p[1])<tol)return {k:"grid",p:[p[0],gp[1]]};}else if(dist(gp,p)<tol)return {k:"grid",p:gp};}
   const n=nearestOn(p,tol*.75,wm);if(n&&!(S.ortho&&from))return {k:"near",p:n.p};
   return {k:null,p};}
@@ -923,7 +945,7 @@ $("#tabs").addEventListener("click",e=>{const b=e.target.closest("button");if(!b
 $("#tools").addEventListener("click",e=>{const b=e.target.closest("button");if(!b)return;const k=b.dataset.tool;
   if(k==="group"){toggleGroup();return;}
   if(["move","rotate","scale","mirror","copy","erase"].includes(k)){startCmd(k);return;}setTool(k);});
-function setTool(k){finishDraft();S.cmd=null;S.stairProp=null;S.tool=k;S.hoverDoor=null;S.offEnt=null;if(k!=="select"){}renderDock();renderCtx();draw();}
+function setTool(k){trackReset();finishDraft();S.cmd=null;S.stairProp=null;S.tool=k;S.hoverDoor=null;S.offEnt=null;if(k!=="select"){}renderDock();renderCtx();draw();}
 function startCmd(k){finishDraft();if(!S.sel.size&&(k==="move"||k==="copy")){S.tool="select";S.cmd={name:k,base:null,ids:[]};renderDock();renderCtx();draw();return;}if(!S.sel.size){toast("Önce düzenlenecek elemanları seç");S.tool="select";renderDock();renderCtx();return;}
   if(k==="erase"){eraseSel();return;}S.cmd={name:k,base:null,ids:[...S.sel]};renderDock();renderCtx();draw();}
 function eraseSel(){if(!S.sel.size)return;pushUndo();const del=new Set(S.sel);ents().filter(d=>d.type==="door"&&del.has(d.wallId)).forEach(d=>del.add(d.id));S.proj.ents=ents().filter(e=>!del.has(e.id)||!editable(e));S.sel.clear();S.cmd=null;markDirty();renderDock();renderCtx();refreshPanels();draw();toast("Silindi");}
@@ -963,7 +985,7 @@ function renderCtx(){const C=$("#ctx");let h="";
   else if(S.tool==="trim"){h='<span class="t">Kırp</span><span class="hint">Silinecek duvar ya da çizgi parçasına dokun; keseni duvar ekseni ve çizgilerdir</span>';}
   if(h)h='<button class="ib xbtn" id="ctxX" type="button" aria-label="Komuttan çık">'+ico("close")+'</button>'+h;
   C.innerHTML=h;bindCtx();}
-function cancelTool(){S.draft=null;S.cmd=null;S.stairProp=null;S.sketch.strokes=[];S.hoverDoor=null;S.offEnt=null;S.tool="select";renderDock();renderCtx();draw();}
+function cancelTool(){trackReset();S.draft=null;S.cmd=null;S.stairProp=null;S.sketch.strokes=[];S.hoverDoor=null;S.offEnt=null;S.tool="select";renderDock();renderCtx();draw();}
 function bindCtx(){const on=(id,ev,fn)=>{const el=document.getElementById(id);if(el)el.addEventListener(ev,fn);};
   const numOpt=(id,obj,key)=>on(id,"input",e=>{obj[key]=e.target.value===""?"":+e.target.value;if(S.tool==="stair"){updateStairReadout();if(S.stairProp&&(key==="width"||key==="depth"))rebuildProp(true);}draw();});
   numOpt("oThick",S.opt.wall,"thick");if(S.tool==="wall")numOpt("oH",S.opt.wall,"height");
@@ -991,7 +1013,7 @@ function bindCtx(){const on=(id,ev,fn)=>{const el=document.getElementById(id);if
 }
 function updateStairReadout(){const r=document.querySelector("#ctx .readout");if(r)r.textContent="Toplam: "+stairSize(S.opt.stair);}
 function placeCmd(M){if(S.cmd.name==="copy"){const ids=S.cmd.ids.slice();S.sel=new Set(ids);applyToSel(M,true);S.sel=new Set(ids.filter(id=>byId(id)));refreshPanels();renderCtx();toast("Çoğaltıldı");return;}applyToSel(M,false);endCmd();}
-function endCmd(){S.cmd=null;renderDock();renderCtx();draw();}
+function endCmd(){trackReset();S.cmd=null;renderDock();renderCtx();draw();}
 function typedLength(L){const D=S.draft;let from=D&&D.kind==="chain"?D.start:D&&D.kind==="pts"?D.pts[D.pts.length-1]:null;if(!from){toast("Önce başlangıç noktasını seç");return;}
   let dir=S.cur?[S.cur[0]-from[0],S.cur[1]-from[1]]:[1,0];if(S.ortho)dir=Math.abs(dir[0])>=Math.abs(dir[1])?[Math.sign(dir[0])||1,0]:[0,Math.sign(dir[1])||1];const n=Math.hypot(dir[0],dir[1])||1;const p=[from[0]+dir[0]/n*L,from[1]+dir[1]/n*L];commitPoint(p);draw();}
 
@@ -1048,8 +1070,8 @@ function startPinch(){S.tap=null;const t=[...S.pointers.values()].filter(p=>p.ty
 function doPinch(){const t=[...S.pointers.values()].filter(p=>p.type==="touch");if(t.length<2)return;const a=t[0],b=t[1];const d=Math.hypot(a.x-b.x,a.y-b.y),c=[(a.x+b.x)/2,(a.y+b.y)/2];S.view.z=clamp(S.pinch.z*d/S.pinch.d,0.02,8);const dv=vRot([(c[0]-W()/2)/S.view.z,(c[1]-H()/2)/S.view.z],-(S.view.r||0));S.view.x=S.pinch.w[0]-dv[0];S.view.y=S.pinch.w[1]-dv[1];updStatus();draw();}
 function fromPoint(){const D=S.draft;if(S.cmd&&S.cmd.base)return S.cmd.base;if(D&&D.kind==="chain")return D.start;if(D&&D.kind==="pts")return D.pts[D.pts.length-1];if(D&&D.kind==="rect")return D.a;if(D&&D.kind==="circle")return D.c;return null;}
 function updateCursor(raw){S.raw=raw;if(S.cmd&&S.cmd.base&&(S.cmd.name==="move"||S.cmd.name==="copy")){if(!S.cmd.mv)S.cmd.mv=buildMoveSnap();const r=moveSnap(S.cmd.mv,[raw[0]-S.cmd.base[0],raw[1]-S.cmd.base[1]]);S.cur=[S.cmd.base[0]+r.d[0],S.cmd.base[1]+r.d[1]];S.snap=r.snap;}
-  else if(S.tool==="select"&&!S.cmd){S.snap=null;S.cur=raw;}else{const s=snapPoint(raw,fromPoint());S.snap=s.k?s:null;S.cur=s.p;}
-  $("#stXY").textContent="x "+fmt(S.cur[0])+" · y "+fmt(-S.cur[1]);$("#stSnap").textContent=S.snap?({end:"Uç nokta",mid:"Orta nokta",cen:"Merkez",grid:"Izgara",near:"Üzerinde",int:"Kesişim"}[S.snap.k]):"";}
+  else if(S.tool==="select"&&!S.cmd){S.snap=null;S.cur=raw;}else{const s=snapPoint(raw,fromPoint());S.snap=s.k?s:null;S.cur=s.p;if(S.snap&&["end","mid","cen","int"].includes(S.snap.k)&&!(S.cmd&&S.cmd.base))scheduleAcq(S.snap.p,null);else if(!S.snap||S.snap.k!=="track")cancelAcq();}
+  $("#stXY").textContent="x "+fmt(S.cur[0])+" · y "+fmt(-S.cur[1]);$("#stSnap").textContent=S.snap?({track:"Hiza",end:"Uç nokta",mid:"Orta nokta",cen:"Merkez",grid:"Izgara",near:"Üzerinde",int:"Kesişim"}[S.snap.k]):"";}
 function updStatus(){const px=100*S.view.z;$("#stZ").textContent="1 kare = 1 m · "+Math.round(px)+" px";}
 
 function toolDown(raw,e){const p=S.cur;
@@ -1078,7 +1100,7 @@ function toolUp(raw,e){const p=S.cur;const moved=downInfo&&downInfo.moved;
     if(S.cmd.fromDown){S.cmd.fromDown=false;if(!moved)return;}
     if(S.cmd.name==="scale"&&!moved){S.cmd.ref=null;return;}
     const M=cmdMatrix(S.cmd,p);if(!M)return;placeCmd(M);return;}
-  if(S.tool==="select"){if(S.drag){if(S.drag.moved){const now=JSON.stringify(ents());S.proj.ents=JSON.parse(S.drag.snap);pushUndo();S.proj.ents=JSON.parse(now);for(const id of S.sel){const d=byId(id);if(d&&d.type==="door")reattachDoor(d);}markDirty();refreshPanels();}S.drag=null;return;}
+  if(S.tool==="select"){if(S.drag){trackReset();if(S.drag.moved){const now=JSON.stringify(ents());S.proj.ents=JSON.parse(S.drag.snap);pushUndo();S.proj.ents=JSON.parse(now);for(const id of S.sel){const d=byId(id);if(d&&d.type==="door")reattachDoor(d);}markDirty();refreshPanels();}S.drag=null;return;}
     if(S.box){const a=S.box.a,b=S.box.b;S.box=null;if(dist(a,b)*S.view.z<6)return;const x0=Math.min(a[0],b[0]),x1=Math.max(a[0],b[0]),y0=Math.min(a[1],b[1]),y1=Math.max(a[1],b[1]);
       for(const en of ents()){if(!editable(en))continue;const bb=bbox(en);if(bb[0]>=x0&&bb[2]<=x1&&bb[1]>=y0&&bb[3]<=y1)grpSet(en.id).forEach(id=>S.sel.add(id));}refreshPanels();}return;}
   if(S.tool==="offset"){if(!S.offEnt){const hit=hitTest(raw,e.pointerType==="touch"?22:10);if(hit&&offsetGhost(hit,raw)){S.offEnt=hit.id;S.sel=new Set([hit.id]);}else if(hit)toast("Bu eleman ötelenemiyor");renderCtx();return;}
