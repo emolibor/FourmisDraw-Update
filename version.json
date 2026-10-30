@@ -1,6 +1,6 @@
 {
   "web": 3,
   "apk": 5,
-  "apkUrl": "https://github.com/emolibor/FourmisDraw-Update/releases/download/v1.0.5/FourmisDraw.apk",
+  "apkUrl": "https://raw.githubusercontent.com/emolibor/FourmisDraw-Update/main/FourmisDraw.apk",
   "notes": "FourmisDraw için yeni bir uygulama sürümü var."
 }
