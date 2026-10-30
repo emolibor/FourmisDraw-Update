@@ -232,7 +232,7 @@ svg.i{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.7;stro
 <script>
 (function(){
   if(!window.FDBridge)return;
-  window.FD_NATIVE=true;window.FD_WEBVER=parseInt('9',10)||0;
+  window.FD_NATIVE=true;window.FD_WEBVER=parseInt('10',10)||0;
   var seq=0,pend={};
   window.__fdReply=function(id,ok,payload){var p=pend[id];if(!p)return;delete pend[id];ok?p.res(payload):p.rej(payload);};
   function call(op,args){return new Promise(function(res,rej){var id=++seq;pend[id]={res:res,rej:rej};args.id=id;args.op=op;FDBridge.postMessage(JSON.stringify(args));});}
@@ -594,12 +594,14 @@ function nearestOn(p,tol,wm){let best=null;for(const e of ents()){if(!visible(e)
     for(const s of primSegs(x)){const q=projSeg(p,s[0],s[1]).pt;const dd=dist(p,q);if(dd<tol&&(!best||dd<best.d))best={d:dd,p:q};}}}return best;}
 // Moving a selection: any of its own snap points (near or far corner, centre, mid) may land on a fixed point.
 function buildMoveSnap(){const sel=[...S.sel].map(byId).filter(Boolean);const src=snapCands(false,null,sel).filter(c=>c.k!=="grid"&&c.k!=="near");
-  const tgt=snapCands(false,S.sel).filter(c=>c.k==="end"||c.k==="mid"||c.k==="cen");return {src,tgt,last:null};}
+  const tgt=snapCands(false,S.sel).filter(c=>c.k==="end"||c.k==="mid"||c.k==="cen");
+  const faces=[];for(const e of ents()){if(S.sel.has(e.id)||!visible(e))continue;if(e.type==="wall")wallPolys(e).forEach(r=>{for(let i=0;i<4;i++)faces.push([r[i],r[(i+1)%4]]);});else if(e.type==="line")faces.push([[e.x1,e.y1],[e.x2,e.y2]]);else if(e.type==="pline"||e.type==="rect"){const P=e.pts;for(let i=0;i<P.length-(e.closed?0:1);i++)faces.push([P[i],P[(i+1)%P.length]]);}}
+  return {src,tgt,faces:faces.filter(f=>dist(f[0],f[1])>1),last:null};}
 /* ---------- alignment tracking (AutoCAD-style): rest the pen on a snap point to pick it up as a reference ---------- */
 function trackReset(){S.track=[];clearTimeout(S.acqT);S.acqKey=null;}
 function trackDirs(p){const dirs=[[1,0],[0,1]];for(const e of ents()){if(!visible(e))continue;if(e.type==="wall"||e.type==="line"){if(dist(p,[e.x1,e.y1])<1||dist(p,[e.x2,e.y2])<1){const L=Math.hypot(e.x2-e.x1,e.y2-e.y1)||1,u=[(e.x2-e.x1)/L,(e.y2-e.y1)/L];if(Math.abs(u[0])>1e-3&&Math.abs(u[1])>1e-3)dirs.push(u,[-u[1],u[0]]);}}}return dirs;}
-function scheduleAcq(p,src){const key=p[0].toFixed(1)+","+p[1].toFixed(1)+(src?"|"+src[0].toFixed(1)+","+src[1].toFixed(1):"");if(S.acqKey===key)return;clearTimeout(S.acqT);S.acqKey=key;
-  S.acqT=setTimeout(()=>{if(!S.track)S.track=[];if(S.track.some(t=>dist(t.p,p)<0.5&&(!src||(t.src&&dist(t.src,src)<0.5))))return;S.track.push({p:p.slice(),src:src?src.slice():null,dirs:trackDirs(p)});if(S.track.length>2)S.track.shift();draw();},350);}
+function scheduleAcq(p,src,dirs,lock){const key=p[0].toFixed(1)+","+p[1].toFixed(1)+(src?"|"+src[0].toFixed(1)+","+src[1].toFixed(1):"");if(S.acqKey===key)return;clearTimeout(S.acqT);S.acqKey=key;
+  S.acqT=setTimeout(()=>{if(!S.track)S.track=[];if(S.track.some(t=>dist(t.p,p)<0.5&&(!src||(t.src&&dist(t.src,src)<0.5))))return;S.track.push({p:p.slice(),src:src?src.slice():null,dirs:dirs||trackDirs(p),lock:!!lock});if(S.track.length>2)S.track.shift();draw();},350);}
 function cancelAcq(){clearTimeout(S.acqT);S.acqKey=null;}
 // q = point to align, line = optional {o,u} it must stay on (ortho); refs: acquired points (filtered by source when moving)
 function alignTo(q,line,refs,tol){if(!refs||!refs.length)return null;const L=[];refs.forEach(R=>R.dirs.forEach(u=>L.push({o:R.p,u})));let best=null;
@@ -614,9 +616,14 @@ function moveSnap(mv,d){const tol=16/S.view.z;let best=null;
   for(const s of mv.src){const q=[s.p[0]+d[0],s.p[1]+d[1]];
     for(const t of mv.tgt){let tl=tol;if(mv.last&&mv.last.s===s&&mv.last.t===t)tl*=1.5;const dd=dist(q,t.p);if(dd<tl&&(!best||dd<best.dd))best={s,t,dd};}}
   mv.last=best?{s:best.s,t:best.t}:null;
-  if(best)scheduleAcq(best.t.p,best.s.p);else cancelAcq();
+  if(best)scheduleAcq(best.t.p,best.s.p);
   if(!best){const refs=(S.track||[]).filter(R=>R.src);let al=null,srcP=null;
-    for(const R of refs){const q=[R.src[0]+d[0],R.src[1]+d[1]];const line=S.ortho?{o:R.src,u:Math.abs(d[0])>=Math.abs(d[1])?[1,0]:[0,1]}:null;const a=alignTo(q,line,[R],tol);if(a&&(!al||a.d<al.d)){al=a;srcP=R.src;}}
+    for(const R of refs){const q=[R.src[0]+d[0],R.src[1]+d[1]];const line=S.ortho?{o:R.src,u:Math.abs(d[0])>=Math.abs(d[1])?[1,0]:[0,1]}:null;const a=alignTo(q,line,[R],R.lock?tol*2.5:tol);if(a&&(!al||a.d<al.d)){al=a;srcP=R.src;}}
+    // touching a wall face / line: sit flush on it and pick up the line perpendicular to it
+    let fc=null;if(mv.faces)for(const s of mv.src){const q=[s.p[0]+d[0],s.p[1]+d[1]];for(const f of mv.faces){const pr=projSeg(q,f[0],f[1]);if(pr.t<=0.001||pr.t>=0.999)continue;const dd=dist(q,pr.pt);if(dd<tol*0.8&&(!fc||dd<fc.dd))fc={dd,s,pt:pr.pt,f};}}
+    if(fc&&(!al||fc.dd<al.d*0.5)){const L=dist(fc.f[0],fc.f[1]),u=[(fc.f[1][0]-fc.f[0][0])/L,(fc.f[1][1]-fc.f[0][1])/L];scheduleAcq(fc.pt,fc.s.p,[[-u[1],u[0]]],true);
+      return {d:[fc.pt[0]-fc.s.p[0],fc.pt[1]-fc.s.p[1]],snap:{k:"near",p:fc.pt}};}
+    cancelAcq();
     if(al)return {d:[al.p[0]-srcP[0],al.p[1]-srcP[1]],snap:{k:"track",p:al.p,refs:al.refs}};
     return {d,snap:null};}
   let nd=[best.t.p[0]-best.s.p[0],best.t.p[1]-best.s.p[1]];if(S.ortho){nd=Math.abs(d[0])>=Math.abs(d[1])?[nd[0],0]:[0,nd[1]];}
