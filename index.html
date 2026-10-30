@@ -232,7 +232,7 @@ svg.i{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.7;stro
 <script>
 (function(){
   if(!window.FDBridge)return;
-  window.FD_NATIVE=true;window.FD_WEBVER=parseInt('7',10)||0;
+  window.FD_NATIVE=true;window.FD_WEBVER=parseInt('8',10)||0;
   var seq=0,pend={};
   window.__fdReply=function(id,ok,payload){var p=pend[id];if(!p)return;delete pend[id];ok?p.res(payload):p.rej(payload);};
   function call(op,args){return new Promise(function(res,rej){var id=++seq;pend[id]={res:res,rej:rej};args.id=id;args.op=op;FDBridge.postMessage(JSON.stringify(args));});}
@@ -653,7 +653,7 @@ function xformEnt(e,M){const det=M[0]*M[3]-M[1]*M[2],sc=Math.sqrt(Math.abs(det))
   else if(e.type==="text"){const c=ap(M,[e.x,e.y]);e.x=c[0];e.y=c[1];if(det>0){e.ang=Math.round(-deg(dirAng(rad(-(e.ang||0))))*10)/10;}if(Math.abs(sc-1)>1e-6)e.h=Math.round(e.h*sc*10)/10;}
   else if(e.type==="column"){const c=ap(M,[e.x,e.y]);e.x=c[0];e.y=c[1];e.ang=deg(dirAng(rad(-(e.ang||0))))*-1;if(Math.abs(sc-1)>1e-6){e.w=Math.round(e.w*sc*10)/10;e.d=Math.round(e.d*sc*10)/10;}}
   else if(e.type==="door"){const c=ap(M,[e.x,e.y]);e.x=c[0];e.y=c[1];e.ang=dirAng(e.ang);if(det<0)e.flip=-(e.flip||1);if(Math.abs(sc-1)>1e-6){e.width=Math.round(e.width*sc);}}
-  else if(e.type==="stair"){if(e.kind==="sketch"){const f=p=>ap(M,p);(e.outlines||[]).forEach(o=>o.pts=o.pts.map(f));e.flights.forEach(fl=>{fl.treads=fl.treads.map(t=>t.map(f));fl.rect=fl.rect.map(f);});(e.landings||[]).forEach(l=>{l.pts=l.pts.map(f);});e.arrow=e.arrow.map(f);const c=f([e.x,e.y]);e.x=c[0];e.y=c[1];return;}if(e.kind==="custom"){e.pts=e.pts.map(p=>ap(M,p));}else{const c=ap(M,[e.x,e.y]);e.x=c[0];e.y=c[1];e.ang=dirAng(e.ang||0);if(det<0)e.m=-(e.m||1);}if(Math.abs(sc-1)>1e-6){e.width=Math.round(e.width*sc);e.depth=Math.round(e.depth*sc*10)/10;e.landing=Math.round((e.landing||100)*sc);}}
+  else if(e.type==="stair"){if(e.kind==="sketch"){const f=p=>ap(M,p);(e.outlines||[]).forEach(o=>o.pts=o.pts.map(f));e.flights.forEach(fl=>{fl.treads=fl.treads.map(t=>t.map(f));fl.rect=fl.rect.map(f);if(fl.steps)fl.steps=fl.steps.map(q=>q.map(f));});(e.landings||[]).forEach(l=>{l.pts=l.pts.map(f);});e.arrow=e.arrow.map(f);const c=f([e.x,e.y]);e.x=c[0];e.y=c[1];return;}if(e.kind==="custom"){e.pts=e.pts.map(p=>ap(M,p));}else{const c=ap(M,[e.x,e.y]);e.x=c[0];e.y=c[1];e.ang=dirAng(e.ang||0);if(det<0)e.m=-(e.m||1);}if(Math.abs(sc-1)>1e-6){e.width=Math.round(e.width*sc);e.depth=Math.round(e.depth*sc*10)/10;e.landing=Math.round((e.landing||100)*sc);}}
   else if(e.type==="image"){const a=ap(M,[e.x,e.y]),b=ap(M,[e.x+e.w,e.y+e.h]);e.x=Math.min(a[0],b[0]);e.y=Math.min(a[1],b[1]);e.w=Math.abs(b[0]-a[0]);e.h=Math.abs(b[1]-a[1]);}
 }
 function applyToSel(M,copy){pushUndo();const ids=[...S.sel];const newSel=new Set();const wallMap={};
@@ -730,7 +730,107 @@ function rebuildProp(keep){const P=S.stairProp;if(!P)return;const o=S.opt.stair,
 function sketchPrims(e){const P=[];if(e.outlines&&e.outlines.length)e.outlines.forEach(o=>P.push({k:"p",pts:o.pts,closed:o.closed}));else{e.flights.forEach(f=>P.push({k:"p",pts:f.rect,closed:true}));(e.landings||[]).forEach(l=>P.push({k:"p",pts:l.pts,closed:true}));}
   e.flights.forEach(f=>f.treads.forEach(t=>P.push({k:"l",a:t[0],b:t[1]})));const ar=e.arrow;if(ar&&ar.length>1){P.push({k:"p",pts:ar});const b=ar[ar.length-1],a=ar[ar.length-2],an=Math.atan2(b[1]-a[1],b[0]-a[0]);P.push({k:"p",pts:[[b[0]-14*Math.cos(an-.45),b[1]-14*Math.sin(an-.45)],b,[b[0]-14*Math.cos(an+.45),b[1]-14*Math.sin(an+.45)]]});}
   return P;}
-function reverseSketch(e){e.arrow=e.arrow.slice().reverse();e.flights=e.flights.slice().reverse();e.flights.forEach(f=>{f.treads=f.treads.slice().reverse();const t=f.entry;f.entry=f.exit;f.exit=t;f.dirv=[-f.dirv[0],-f.dirv[1]];});e.x=e.arrow[0][0];e.y=e.arrow[0][1];}
+function reverseSketch(e){e.arrow=e.arrow.slice().reverse();e.flights=e.flights.slice().reverse();e.flights.forEach(f=>{f.treads=f.treads.slice().reverse();if(f.steps)f.steps=f.steps.slice().reverse();const t=f.entry;f.entry=f.exit;f.exit=t;f.dirv=[-f.dirv[0],-f.dirv[1]];});e.x=e.arrow[0][0];e.y=e.arrow[0][1];}
+/* free-form (curved / winder / spiral) sketch: treads in any direction, ordered along the walking line */
+// straight runs stay straight; each curved part becomes exact arcs around one centre with treads at equal angles
+function arcModel(tr,E0,E1){const n=tr.length;const groups=[];
+  for(let i=0;i<n;i++){const t=tr[i];const key=t.run?"r"+t.rid:"c";const g=groups[groups.length-1];if(g&&g.key===key)g.items.push(t);else groups.push({key,run:!!t.run,items:[t]});}
+  if(!groups.some(g=>!g.run))return null;if(groups.some(g=>!g.run&&g.items.length<2))return null;
+  const med=a=>{const b=a.slice().sort((x,y)=>x-y);return b[Math.floor(b.length/2)];};
+  const unwrapTo=(a,ref)=>{while(a-ref>Math.PI)a-=2*Math.PI;while(a-ref<-Math.PI)a+=2*Math.PI;return a;};
+  // fit arcs
+  for(const g of groups){if(g.run)continue;let a11=0,a12=0,a22=0,b1=0,b2=0;
+    g.items.forEach(t=>{const L=dist(t.a,t.b)||1,d=[(t.b[0]-t.a[0])/L,(t.b[1]-t.a[1])/L];const m11=1-d[0]*d[0],m12=-d[0]*d[1],m22=1-d[1]*d[1];a11+=m11;a12+=m12;a22+=m22;b1+=m11*t.m[0]+m12*t.m[1];b2+=m12*t.m[0]+m22*t.m[1];});
+    const det=a11*a22-a12*a12;if(Math.abs(det)<1e-6)return null;const C=[(b1*a22-a12*b2)/det,(a11*b2-a12*b1)/det];g.C=C;
+    g.ri=Math.max(0,med(g.items.map(t=>Math.min(dist(C,t.a),dist(C,t.b)))));g.ro=med(g.items.map(t=>Math.max(dist(C,t.a),dist(C,t.b))));
+    g.innerA=g.items.filter(t=>dist(C,t.a)<dist(C,t.b)).length>=g.items.length/2;
+    let ph=g.items.map(t=>Math.atan2(t.m[1]-C[1],t.m[0]-C[0]));for(let k=1;k<ph.length;k++)ph[k]=unwrapTo(ph[k],ph[k-1]);g.ph=ph;g.dir=Math.sign(ph[ph.length-1]-ph[0])||1;
+    if(g.ro-g.ri<20)return null;}
+  // arc ends: meet the neighbouring straight run along its tread direction, else half a step past the outer treads
+  groups.forEach((g,gi)=>{if(g.run)return;const ph=g.ph,k=ph.length,half=Math.abs(ph[k-1]-ph[0])/(k-1)/2*g.dir;
+    const fromRun=(r)=>{const t=r.items[0];const u=t.u;const s=Math.sign((t.m[0]-g.C[0])*u[0]+(t.m[1]-g.C[1])*u[1])||1;return Math.atan2(u[1]*s,u[0]*s);};
+    const pv=groups[gi-1],nx=groups[gi+1];g.p0=pv&&pv.run?unwrapTo(fromRun(pv),ph[0]):ph[0]-half;g.p1=nx&&nx.run?unwrapTo(fromRun(nx),ph[k-1]):ph[k-1]+half;
+    if(Math.sign(g.p1-g.p0)!==g.dir)return;});
+  const P=(g,phi,r)=>[g.C[0]+Math.cos(phi)*r,g.C[1]+Math.sin(phi)*r];
+  const arcLine=(g,phi)=>{const pi=P(g,phi,g.ri),po=P(g,phi,g.ro);return g.innerA?[pi,po]:[po,pi];};
+  // straight runs: lateral edges from the arc (same width all round), ends meet the arc lines / outline edges
+  groups.forEach((g,gi)=>{if(!g.run)return;const t0=g.items[0],u=t0.u;const v0=[g.items[g.items.length-1].m[0]-t0.m[0],g.items[g.items.length-1].m[1]-t0.m[1]];let v=[-u[1],u[0]];
+    const pv=groups[gi-1],nx=groups[gi+1];const O=t0.m;const S=p=>(p[0]-O[0])*v[0]+(p[1]-O[1])*v[1],U=p=>(p[0]-O[0])*u[0]+(p[1]-O[1])*u[1];
+    let lo=U(t0.a),hi=U(t0.b);const arc=(pv&&!pv.run)?pv:(nx&&!nx.run)?nx:null;
+    if(arc){const phi=arc===pv?arc.p1:arc.p0;const L=arcLine(arc,phi);lo=U(L[0]);hi=U(L[1]);}
+    let s0,s1;const ss=g.items.map(t=>S(t.m));const dirS=ss.length>1?Math.sign(ss[ss.length-1]-ss[0]):Math.sign(S(gi===groups.length-1?E1.a:tr[tr.indexOf(t0)+1].m))||1;
+    if(pv&&!pv.run)s0=S(arcLine(pv,pv.p1)[0]);else s0=S(lerp(E0.a,E0.b,.5));
+    if(nx&&!nx.run)s1=S(arcLine(nx,nx.p0)[0]);else s1=S(lerp(E1.a,E1.b,.5));
+    if(gi>0&&pv&&pv.run)s0=pv.s1g;if(gi<groups.length-1&&nx&&nx.run){s1=ss[ss.length-1]+(ss.length>1?(ss[ss.length-1]-ss[0])/(ss.length-1):dirS*30);}
+    g.O=O;g.u=u;g.v=v;g.lo=lo;g.hi=hi;g.s0=s0;g.s1=s1;g.s1g=s1;});
+  // assemble the sequence of step edges
+  const lines=[],segL=[],segR=[];const L=(p0,p1)=>{};
+  const pushLine=l=>{lines.push(l);};
+  groups.forEach((g,gi)=>{const k=g.items.length;
+    if(g.run){const at=(sv,l)=>[g.O[0]+g.v[0]*sv+g.u[0]*l,g.O[1]+g.v[1]*sv+g.u[1]*l];const ln=sv=>[at(sv,g.lo),at(sv,g.hi)];
+      const nx=groups[gi+1];if(gi===0)pushLine({l:ln(g.s0),kind:"s"});for(let j=1;j<=k;j++)pushLine({l:ln(g.s0+(g.s1-g.s0)*j/(k+1)),kind:"s"});
+      if(nx&&!nx.run)pushLine({l:arcLine(nx,nx.p0),kind:"a",g:nx,phi:nx.p0});else pushLine({l:ln(g.s1),kind:"s"});}
+    else{if(gi===0)pushLine({l:arcLine(g,g.p0),kind:"a",g,phi:g.p0});for(let j=1;j<=k;j++){const phi=g.p0+(g.p1-g.p0)*j/(k+1);pushLine({l:arcLine(g,phi),kind:"a",g,phi});}pushLine({l:arcLine(g,g.p1),kind:"a",g,phi:g.p1});}});
+  return {lines};}
+function finishFree(geo,nDrawn){const lines=geo.lines;const N=lines.length;
+  const sideA=[],sideB=[],steps=[],mids=[];
+  for(let i=0;i<N-1;i++){const p=lines[i],q=lines[i+1];let ea=[p.l[0],q.l[0]],eb=[p.l[1],q.l[1]],em=[lerp(p.l[0],p.l[1],.5),lerp(q.l[0],q.l[1],.5)];
+    if(p.kind==="a"&&q.kind==="a"&&p.g===q.g){const g=p.g;const ra=dist(g.C,p.l[0]),rb=dist(g.C,p.l[1]);const seg=r=>arcPts(g.C,r,p.phi,q.phi,6);ea=seg(ra);eb=seg(rb);em=seg((ra+rb)/2);}
+    if(i===0){sideA.push(ea[0]);sideB.push(eb[0]);mids.push(em[0]);}
+    sideA.push(...ea.slice(1));sideB.push(...eb.slice(1));mids.push(...em.slice(1));steps.push(ea.concat(eb.slice().reverse()));}
+  const treadsOut=lines.slice(1,-1).map(x=>x.l);
+  const outlines=[{pts:sideA,closed:false},{pts:sideB,closed:false},{pts:lines[0].l,closed:false},{pts:lines[N-1].l,closed:false}];
+  const m0=lerp(lines[0].l[0],lines[0].l[1],.5),m1=lerp(lines[1].l[0],lines[1].l[1],.5);
+  const arrow=[lerp(m0,m1,.5)].concat(mids.slice(1,-1));const mz=lerp(lines[N-2].l[0],lines[N-2].l[1],.5),mN=lerp(lines[N-1].l[0],lines[N-1].l[1],.5);arrow.push(lerp(mz,mN,.5));
+  let wl=0;for(let i=1;i<mids.length;i++)wl+=dist(mids[i-1],mids[i]);const nst=N-1;
+  const dv=[m1[0]-m0[0],m1[1]-m0[1]],dl=Math.hypot(dv[0],dv[1])||1;const W=dist(lines[0].l[0],lines[0].l[1]);
+  const flight={treads:treadsOut,rect:[],steps,spacing:wl/nst,entry:m0,exit:mN,dirv:[dv[0]/dl,dv[1]/dl],n:nst,free:true};
+  const ent={kind:"sketch",flights:[flight],landings:[],outlines,arrow,n:nst,x:arrow[0][0],y:arrow[0][1],ang:0,m:1,width:Math.round(W),depth:Math.round(wl/nst)};
+  const bx=bbox(Object.assign({type:"stair"},ent));
+  return {ent,label:"Serbest biçimli merdiven · "+nst+" basamak · yürüme çizgisinde basamak ≈ "+fmt(wl/nst)+" cm · "+fmt(bx[2]-bx[0])+" × "+fmt(bx[3]-bx[1])+" cm"};}
+function interpretFree(treads,outl,strokes){
+  const segs=[];outl.forEach(st=>{const q=rdp(st,3);for(let k=0;k<q.length-1;k++)segs.push([q[k],q[k+1]]);});
+  const rayHits=(o,d)=>{const out=[];for(const sg of segs){const r=[sg[1][0]-sg[0][0],sg[1][1]-sg[0][1]];const den=d[0]*r[1]-d[1]*r[0];if(Math.abs(den)<1e-9)continue;const w=[sg[0][0]-o[0],sg[0][1]-o[1]];const t=(w[0]*r[1]-w[1]*r[0])/den,uu=(w[0]*d[1]-w[1]*d[0])/den;if(uu>=-0.02&&uu<=1.02)out.push(t);}return out;};
+  // 1) clip every tread to the drawn outline
+  const T=treads.map(t=>{const L=t.len,u=[(t.b[0]-t.a[0])/L,(t.b[1]-t.a[1])/L],m=lerp(t.a,t.b,.5);const hs=rayHits(m,u);
+    const neg=hs.filter(x=>x<0&&x>-L*0.8),pos=hs.filter(x=>x>0&&x<L*0.8);const lo=neg.length?Math.max(...neg):-L/2,hi=pos.length?Math.min(...pos):L/2;
+    const a=[m[0]+u[0]*lo,m[1]+u[1]*lo],b=[m[0]+u[0]*hi,m[1]+u[1]*hi];return {a,b,m:lerp(a,b,.5),order:t.order};});
+  const n=T.length;
+  // 2) order along the walking line: shortest nearest-neighbour chain
+  let bestOrd=null,bestLen=1e18;
+  for(let s0=0;s0<n;s0++){const used=new Set([s0]),ord=[s0];let len=0;while(ord.length<n){const l=T[ord[ord.length-1]];let bi=-1,bd=1e18;for(let j=0;j<n;j++){if(used.has(j))continue;const d=dist(l.m,T[j].m);if(d<bd){bd=d;bi=j;}}used.add(bi);ord.push(bi);len+=bd;}if(len<bestLen){bestLen=len;bestOrd=ord;}}
+  let tr=bestOrd.map(i=>T[i]);
+  // start where the sketch started (closest end to the first pen stroke)
+  const st0=strokes[0][0];if(dist(tr[n-1].m,st0)<dist(tr[0].m,st0))tr.reverse();
+  // 3) consistent sides: a = left of walking direction
+  for(let i=0;i<n;i++){const p=tr[Math.max(0,i-1)].m,q=tr[Math.min(n-1,i+1)].m;const w=[q[0]-p[0],q[1]-p[1]];const t=tr[i];const cr=w[0]*(t.b[1]-t.a[1])-w[1]*(t.b[0]-t.a[0]);if(cr<0){const x=t.a;t.a=t.b;t.b=x;}}
+  // 4) straighten runs of parallel treads (straight flights get straight, parallel edges)
+  const ang=t=>Math.atan2(t.b[1]-t.a[1],t.b[0]-t.a[0]);const ad=(x,y)=>{let d=Math.abs(x-y)%(2*Math.PI);return Math.min(d,2*Math.PI-d);};
+  let i=0;while(i<n){let j=i;while(j+1<n&&ad(ang(tr[j+1]),ang(tr[i]))<rad(10))j++;
+    if(j-i>=1){const run=tr.slice(i,j+1);let cx=0,cy=0;run.forEach(t=>{cx+=Math.cos(ang(t));cy+=Math.sin(ang(t));});const th=snapAng(Math.atan2(cy,cx)),u=[Math.cos(th),Math.sin(th)],v=[-u[1],u[0]];
+      const O=run[0].m;const lo=run.reduce((s,t)=>s+((t.a[0]-O[0])*u[0]+(t.a[1]-O[1])*u[1]),0)/run.length,hi=run.reduce((s,t)=>s+((t.b[0]-O[0])*u[0]+(t.b[1]-O[1])*u[1]),0)/run.length;
+      const rid=i;run.forEach(t=>{const sv=(t.m[0]-O[0])*v[0]+(t.m[1]-O[1])*v[1];t.a=[O[0]+v[0]*sv+u[0]*lo,O[1]+v[1]*sv+u[1]*lo];t.b=[O[0]+v[0]*sv+u[0]*hi,O[1]+v[1]*sv+u[1]*hi];t.m=lerp(t.a,t.b,.5);t.run=true;t.rid=rid;t.u=u;});}
+    i=j+1;}
+  // 5) start / end edges: walk back/forward to the outline
+  const edge=(t,nb,sign)=>{const w=[t.m[0]-nb.m[0],t.m[1]-nb.m[1]],wl=Math.hypot(w[0],w[1])||1,d=[w[0]/wl,w[1]/wl];const hs=rayHits(t.m,d).filter(x=>x>wl*0.2&&x<wl*2.5);const k=hs.length?Math.min(...hs):wl;return {a:[t.a[0]+d[0]*k,t.a[1]+d[1]*k],b:[t.b[0]+d[0]*k,t.b[1]+d[1]*k]};};
+  const E0=edge(tr[0],tr[1],-1),E1=edge(tr[n-1],tr[n-2],1);
+  const geo=arcModel(tr,E0,E1);if(geo)return finishFree(geo,n);
+  // 6) even spacing along the walking line (keeps the shape, evens the steps)
+  const A=[E0.a].concat(tr.map(t=>t.a),[E1.a]),B=[E0.b].concat(tr.map(t=>t.b),[E1.b]);const M=A.map((a,k)=>lerp(a,B[k],.5));
+  const cum=[0];for(let k=1;k<M.length;k++)cum.push(cum[k-1]+dist(M[k-1],M[k]));const tot=cum[cum.length-1];
+  const at=(arr,sv)=>{let k=1;while(k<cum.length-1&&cum[k]<sv)k++;const t=(sv-cum[k-1])/((cum[k]-cum[k-1])||1);return lerp(arr[k-1],arr[k],clamp(t,0,1));};
+  const NA=[A[0]],NB=[B[0]];for(let k=1;k<=n;k++){const sv=tot*k/(n+1);NA.push(at(A,sv));NB.push(at(B,sv));}NA.push(A[A.length-1]);NB.push(B[B.length-1]);
+  // light smoothing of the curved parts of both edges
+  const smooth=(P,fixed)=>P.map((p,k)=>k===0||k===P.length-1||fixed[k]?p:[(P[k-1][0]+2*p[0]+P[k+1][0])/4,(P[k-1][1]+2*p[1]+P[k+1][1])/4]);
+  const fixed=[true].concat(tr.map(t=>!!t.run),[true]);const SA=smooth(NA,fixed),SB=smooth(NB,fixed);
+  const treadsOut=[],steps=[];for(let k=1;k<=n;k++)treadsOut.push([SA[k],SB[k]]);for(let k=0;k<=n;k++)steps.push([SA[k],SB[k],SB[k+1],SA[k+1]]);
+  const mids=SA.map((a,k)=>lerp(a,SB[k],.5));const arrow=mids.slice(1,-1);arrow.unshift(lerp(mids[0],mids[1],.5));arrow.push(lerp(mids[mids.length-2],mids[mids.length-1],.5));
+  const outlines=[{pts:SA,closed:false},{pts:SB,closed:false},{pts:[SA[0],SB[0]],closed:false},{pts:[SA[SA.length-1],SB[SB.length-1]],closed:false}];
+  const dv=[mids[1][0]-mids[0][0],mids[1][1]-mids[0][1]],dl=Math.hypot(dv[0],dv[1])||1;
+  const flight={treads:treadsOut,rect:[],steps,spacing:tot/(n+1),entry:mids[0],exit:mids[mids.length-1],dirv:[dv[0]/dl,dv[1]/dl],n:n+1,free:true};
+  const W=dist(SA[0],SB[0]);const ent={kind:"sketch",flights:[flight],landings:[],outlines,arrow,n:n+1,x:arrow[0][0],y:arrow[0][1],ang:0,m:1,width:Math.round(W),depth:Math.round(tot/(n+1))};
+  const bx=bbox(Object.assign({type:"stair"},ent));
+  return {ent,label:"Serbest biçimli merdiven · "+(n+1)+" basamak · yürüme çizgisinde basamak ≈ "+fmt(tot/(n+1))+" cm · "+fmt(bx[2]-bx[0])+" × "+fmt(bx[3]-bx[1])+" cm"};}
 function interpretSketch(strokes){const all=[].concat(...strokes);if(all.length<4)return {error:"Önce merdiveni çiz"};
   const bb=all.reduce((m,p)=>[Math.min(m[0],p[0]),Math.min(m[1],p[1]),Math.max(m[2],p[0]),Math.max(m[3],p[1])],[1e18,1e18,-1e18,-1e18]);const diag=Math.hypot(bb[2]-bb[0],bb[3]-bb[1])||1;
   const treads=[],outl=[];
@@ -739,6 +839,9 @@ function interpretSketch(strokes){const all=[].concat(...strokes);if(all.length<
   if(treads.length<2)return {error:"Basamak çizgisi bulamadım; her basamağı kısa, düz bir çizgiyle çiz"};
   const angOf=t=>{let a=Math.atan2(t.b[1]-t.a[1],t.b[0]-t.a[0]);return ((a%Math.PI)+Math.PI)%Math.PI;};
   const adiff=(x,y)=>{let d=Math.abs(x-y)%Math.PI;return Math.min(d,Math.PI-d);};
+  {let c4=0,s4=0;treads.forEach(t=>{const a=angOf(t);c4+=Math.cos(4*a);s4+=Math.sin(4*a);});const th4=Math.atan2(s4,c4)/4;
+   const rect=treads.every(t=>{const a=angOf(t);return Math.min(adiff(a,th4),adiff(a,th4+Math.PI/2))<rad(14);});
+   if(!rect)return interpretFree(treads,outl,strokes);}
   const medLen=treads.map(t=>t.len).sort((x,y)=>x-y)[Math.floor(treads.length/2)];
   // cluster: same orientation and spatially chained
   const groups=[];treads.forEach(t=>{t.ang=angOf(t);t.mid=lerp(t.a,t.b,.5);});
@@ -1192,7 +1295,8 @@ async function open3D(){const root=document.createElement("div");root.id="v3d";r
       for(const d of ents().filter(d=>d.type==="door"&&d.wallId===e.id&&visible(d))){const dh=+d.height||210;const t=(d.x-e.x1)*u[0]+(d.y-e.y1)*u[1];if(Hh>dh)box(e.x1+u[0]*t,e.y1+u[1]*t,d.width,e.thick,dh,Hh-dh,ang,wallMat);box(d.x,d.y,d.width,4,0,dh,ang,doorMat);}}
     else if(e.type==="column"){const Hc=+e.height||280;if(e.shape==="round"){const m=new THREE.Mesh(new THREE.CylinderGeometry(e.w/2,e.w/2,Hc,24),colMat);m.position.set(e.x,Hc/2,e.y);scene.add(m);}else box(e.x,e.y,e.w,e.d,0,Hc,-rad(e.ang||0),colMat);}
     else if(e.type==="stair"&&e.kind==="sketch"){const Ht=+e.height||e.n*17.5,rz=Ht/e.n;let k=0;
-      for(const fl of e.flights){const tr=fl.treads;if(!tr.length)continue;const u=[tr[0][1][0]-tr[0][0][0],tr[0][1][1]-tr[0][0][1]];const len=Math.hypot(u[0],u[1]);const ang=Math.atan2(u[1],u[0]);const sp=fl.spacing;
+      for(const fl of e.flights){if(fl.steps){for(const q of fl.steps){const sh=new THREE.Shape(q.map(p=>new THREE.Vector2(p[0],-p[1])));const m=new THREE.Mesh(new THREE.ExtrudeGeometry(sh,{depth:rz*(k+1),bevelEnabled:false}),stairMat);m.rotation.x=-Math.PI/2;scene.add(m);k++;}continue;}
+        const tr=fl.treads;if(!tr.length)continue;const u=[tr[0][1][0]-tr[0][0][0],tr[0][1][1]-tr[0][0][1]];const len=Math.hypot(u[0],u[1]);const ang=Math.atan2(u[1],u[0]);const sp=fl.spacing;
         const mids=[fl.entry].concat(tr.map(t=>lerp(t[0],t[1],.5)));const dir=fl.dirv;
         for(let i=0;i<mids.length;i++){const c=[mids[i][0]+dir[0]*sp/2,mids[i][1]+dir[1]*sp/2];box(c[0],c[1],len,sp,0,rz*(k+1),ang,stairMat);k++;}}}
     else if(e.type==="stair"&&e.kind!=="custom"){const n=Math.max(2,+e.n||16),Ht=+e.height||n*17.5,rz=Ht/n;const W2=+e.width||100,gd=+e.depth||28,m=e.m||1;
