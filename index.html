@@ -232,7 +232,7 @@ svg.i{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.7;stro
 <script>
 (function(){
   if(!window.FDBridge)return;
-  window.FD_NATIVE=true;window.FD_WEBVER=parseInt('4',10)||0;
+  window.FD_NATIVE=true;window.FD_WEBVER=parseInt('5',10)||0;
   var seq=0,pend={};
   window.__fdReply=function(id,ok,payload){var p=pend[id];if(!p)return;delete pend[id];ok?p.res(payload):p.rej(payload);};
   function call(op,args){return new Promise(function(res,rej){var id=++seq;pend[id]={res:res,rej:rej};args.id=id;args.op=op;FDBridge.postMessage(JSON.stringify(args));});}
@@ -549,7 +549,7 @@ function drawOverlay(){const c=g,z=S.view.z,T=w2s;Tz=z;const acc=cssv("--accent"
   // window select box
   if(S.box){const A=S.box.a,B=S.box.b;c.fillStyle=sel+"22";c.strokeStyle=sel;c.lineWidth=1;c.setLineDash([4,3]);tracePrim(c,{k:"p",pts:[A,[B[0],A[1]],B,[A[0],B[1]]],closed:true},w2s);c.fill();c.stroke();c.setLineDash([]);}
   // snap marker
-  if(S.snap&&cur&&S.tool!=="select"){const q=T(S.snap.p);c.strokeStyle=S.snap.k==="grid"?cssv("--muted"):acc;c.lineWidth=2;const r=7;c.beginPath();
+  if(S.snap&&cur&&(S.tool!=="select"||S.drag||S.cmd)){const q=T(S.snap.p);c.strokeStyle=S.snap.k==="grid"?cssv("--muted"):acc;c.lineWidth=2;const r=7;c.beginPath();
     if(S.snap.k==="end")c.rect(q[0]-r,q[1]-r,2*r,2*r);else if(S.snap.k==="mid"){c.moveTo(q[0],q[1]-r);c.lineTo(q[0]+r,q[1]+r*.8);c.lineTo(q[0]-r,q[1]+r*.8);c.closePath();}else if(S.snap.k==="cen")c.arc(q[0],q[1],r,0,Math.PI*2);else if(S.snap.k==="grid"){c.moveTo(q[0]-r,q[1]-r);c.lineTo(q[0]+r,q[1]+r);c.moveTo(q[0]+r,q[1]-r);c.lineTo(q[0]-r,q[1]+r);}else if(S.snap.k==="near"){c.moveTo(q[0]-r,q[1]-r);c.lineTo(q[0]+r,q[1]-r);c.lineTo(q[0]-r,q[1]+r);c.lineTo(q[0]+r,q[1]+r);c.closePath();}else if(S.snap.k==="int"){c.moveTo(q[0]-r,q[1]-r);c.lineTo(q[0]+r,q[1]+r);c.moveTo(q[0]+r,q[1]-r);c.lineTo(q[0]-r,q[1]+r);}
     c.stroke();}
   if(cur&&S.tool!=="select"){const q=T(cur);c.strokeStyle=col;c.globalAlpha=.5;c.lineWidth=1;c.beginPath();c.moveTo(q[0]-14,q[1]);c.lineTo(q[0]+14,q[1]);c.moveTo(q[0],q[1]-14);c.lineTo(q[0],q[1]+14);c.stroke();c.globalAlpha=1;}
@@ -558,7 +558,7 @@ function label(p,txt){const q=w2s(p);const c=g;c.font="600 12px 'IBM Plex Mono',
 function lenLabel(a,b){const L=dist(a,b);const ang=deg(Math.atan2(-(b[1]-a[1]),b[0]-a[0]));label(b,fmt(L)+" cm  ∠"+fmt((ang+360)%360)+"°");}
 
 /* ================= snapping ================= */
-function snapCands(wm,ex){const out=[];for(const e of ents()){if(!visible(e)||(ex&&ex.has(e.id)))continue;
+function snapCands(wm,ex,only){const out=[];for(const e of (only||ents())){if(!visible(e)||(ex&&ex.has(e.id)))continue;
   if(e.type==="wall"){out.push({k:wm?"wend":"end",p:[e.x1,e.y1],r:wm?e.thick/2:0},{k:wm?"wend":"end",p:[e.x2,e.y2],r:wm?e.thick/2:0},{k:"mid",p:[(e.x1+e.x2)/2,(e.y1+e.y2)/2]});if(!wm)wallPolys(e).forEach(r=>r.forEach(p=>out.push({k:"end",p})));}
   else if(e.type==="line"){out.push({k:"end",p:[e.x1,e.y1]},{k:"end",p:[e.x2,e.y2]},{k:"mid",p:[(e.x1+e.x2)/2,(e.y1+e.y2)/2]});}
   else if(e.type==="pline"||e.type==="rect"||e.type==="mline"){e.pts.forEach(p=>out.push({k:"end",p}));if(e.type==="mline")mlinePrims(e).forEach(pr=>(pr.pts||[pr.a,pr.b]).forEach(q=>out.push({k:"end",p:q})));const n=e.pts.length;for(let i=0;i<n-(e.closed?0:1);i++)out.push({k:"mid",p:lerp(e.pts[i],e.pts[(i+1)%n],.5)});}
@@ -571,6 +571,17 @@ function snapCands(wm,ex){const out=[];for(const e of ents()){if(!visible(e)||(e
 function nearestOn(p,tol,wm){let best=null;for(const e of ents()){if(!visible(e)||e.type==="image")continue;if(wm&&e.type==="wall"){const q=projSeg(p,[e.x1,e.y1],[e.x2,e.y2]).pt,dd=dist(p,q);if(dd<tol+e.thick/2&&(!best||dd<best.d))best={d:dd,p:q};continue;}let pr=e.type==="wall"?[{k:"l",a:[e.x1,e.y1],b:[e.x2,e.y2]}].concat(prims(e)):prims(e);
   for(const x of pr){if(x.k==="c"){const d=dist(p,x.c);if(d<1e-6)continue;const q=[x.c[0]+(p[0]-x.c[0])/d*x.r,x.c[1]+(p[1]-x.c[1])/d*x.r];const dd=dist(p,q);if(dd<tol&&(!best||dd<best.d))best={d:dd,p:q};continue;}
     for(const s of primSegs(x)){const q=projSeg(p,s[0],s[1]).pt;const dd=dist(p,q);if(dd<tol&&(!best||dd<best.d))best={d:dd,p:q};}}}return best;}
+// Moving a selection: any of its own snap points (near or far corner, centre, mid) may land on a fixed point.
+function buildMoveSnap(){const sel=[...S.sel].map(byId).filter(Boolean);const src=snapCands(false,null,sel).filter(c=>c.k!=="grid"&&c.k!=="near");
+  const tgt=snapCands(false,S.sel).filter(c=>c.k==="end"||c.k==="mid"||c.k==="cen");return {src,tgt,last:null};}
+function moveSnap(mv,d){const tol=16/S.view.z;let best=null;
+  if(S.ortho){d=Math.abs(d[0])>=Math.abs(d[1])?[d[0],0]:[0,d[1]];}
+  for(const s of mv.src){const q=[s.p[0]+d[0],s.p[1]+d[1]];
+    for(const t of mv.tgt){let tl=tol;if(mv.last&&mv.last.s===s&&mv.last.t===t)tl*=1.5;const dd=dist(q,t.p);if(dd<tl&&(!best||dd<best.dd))best={s,t,dd};}}
+  mv.last=best?{s:best.s,t:best.t}:null;
+  if(!best)return {d,snap:null};
+  let nd=[best.t.p[0]-best.s.p[0],best.t.p[1]-best.s.p[1]];if(S.ortho){nd=Math.abs(d[0])>=Math.abs(d[1])?[nd[0],0]:[0,nd[1]];}
+  return {d:nd,snap:{k:best.t.k,p:best.t.p}};}
 function snapPoint(raw,from){const tol=16/S.view.z;let p=raw.slice();
   if(S.ortho&&from){const dx=p[0]-from[0],dy=p[1]-from[1];p=Math.abs(dx)>=Math.abs(dy)?[p[0],from[1]]:[from[0],p[1]];}
   const wm=S.tool==="wall"&&!S.cmd;let best=null;const pri={wend:-1,end:0,int:0,mid:1,cen:1,grid:3,near:4};
@@ -890,7 +901,8 @@ function fingerTap(raw){if(S.cmd||S.draft)return;const hit=hitTest(raw,22);
 function startPinch(){S.tap=null;const t=[...S.pointers.values()].filter(p=>p.type==="touch");const a=t[0],b=t[1];S.pinch={d:Math.hypot(a.x-b.x,a.y-b.y),c:[(a.x+b.x)/2,(a.y+b.y)/2],w:s2w((a.x+b.x)/2,(a.y+b.y)/2),z:S.view.z};S.pan=null;}
 function doPinch(){const t=[...S.pointers.values()].filter(p=>p.type==="touch");if(t.length<2)return;const a=t[0],b=t[1];const d=Math.hypot(a.x-b.x,a.y-b.y),c=[(a.x+b.x)/2,(a.y+b.y)/2];S.view.z=clamp(S.pinch.z*d/S.pinch.d,0.02,8);const dv=vRot([(c[0]-W()/2)/S.view.z,(c[1]-H()/2)/S.view.z],-(S.view.r||0));S.view.x=S.pinch.w[0]-dv[0];S.view.y=S.pinch.w[1]-dv[1];updStatus();draw();}
 function fromPoint(){const D=S.draft;if(S.cmd&&S.cmd.base)return S.cmd.base;if(D&&D.kind==="chain")return D.start;if(D&&D.kind==="pts")return D.pts[D.pts.length-1];if(D&&D.kind==="rect")return D.a;if(D&&D.kind==="circle")return D.c;return null;}
-function updateCursor(raw){S.raw=raw;if(S.tool==="select"&&!S.cmd){S.snap=null;S.cur=raw;}else{const s=snapPoint(raw,fromPoint());S.snap=s.k?s:null;S.cur=s.p;}
+function updateCursor(raw){S.raw=raw;if(S.cmd&&S.cmd.base&&(S.cmd.name==="move"||S.cmd.name==="copy")){if(!S.cmd.mv)S.cmd.mv=buildMoveSnap();const r=moveSnap(S.cmd.mv,[raw[0]-S.cmd.base[0],raw[1]-S.cmd.base[1]]);S.cur=[S.cmd.base[0]+r.d[0],S.cmd.base[1]+r.d[1]];S.snap=r.snap;}
+  else if(S.tool==="select"&&!S.cmd){S.snap=null;S.cur=raw;}else{const s=snapPoint(raw,fromPoint());S.snap=s.k?s:null;S.cur=s.p;}
   $("#stXY").textContent="x "+fmt(S.cur[0])+" · y "+fmt(-S.cur[1]);$("#stSnap").textContent=S.snap?({end:"Uç nokta",mid:"Orta nokta",cen:"Merkez",grid:"Izgara",near:"Üzerinde",int:"Kesişim"}[S.snap.k]):"";}
 function updStatus(){const px=100*S.view.z;$("#stZ").textContent="1 kare = 1 m · "+Math.round(px)+" px";}
 
@@ -900,7 +912,7 @@ function toolDown(raw,e){const p=S.cur;
     if(S.cmd.name==="scale"&&S.cmd.base)S.cmd.ref=Math.max(dist(S.cmd.base,raw),40/S.view.z);
     return;}
   if(S.tool==="select"){const hit=hitTest(raw);if(hit){if(e.shiftKey){{const gs=grpSet(hit.id);if(S.sel.has(hit.id))gs.forEach(id=>S.sel.delete(id));else gs.forEach(id=>S.sel.add(id));};}else if(!S.sel.has(hit.id)){S.sel=grpSet(hit.id);}
-      S.drag={start:raw,snap:JSON.stringify(ents()),moved:false};refreshPanels();}
+      S.drag={start:raw,snap:JSON.stringify(ents()),moved:false,mv:buildMoveSnap()};refreshPanels();}
     else{if(!e.shiftKey)S.sel.clear();S.box={a:raw,b:raw};refreshPanels();}return;}
   if(S.tool==="wall"||S.tool==="line"){if(!S.draft)S.draft={kind:"chain",start:p,count:0};return;}
   if(S.tool==="stair"&&(S.opt.stair.kind==="custom"||S.opt.stair.kind==="sketch")){if(S.stairProp)return;S.draft={kind:"scribble",pts:[raw]};return;}
@@ -909,7 +921,7 @@ function toolDown(raw,e){const p=S.cur;
   if(S.tool==="rect"){if(!S.draft)S.draft={kind:"rect",a:p};return;}
   if(S.tool==="door"){S.hoverDoor=doorGhost(raw);return;}}
 function toolMove(raw,e){
-  if(S.tool==="select"&&!S.cmd){if(S.drag&&downInfo&&downInfo.moved){const orig=JSON.parse(S.drag.snap);const sp=snapPoint(raw,null);const d=[sp.p[0]-S.drag.start[0],sp.p[1]-S.drag.start[1]];
+  if(S.tool==="select"&&!S.cmd){if(S.drag&&downInfo&&downInfo.moved){const orig=JSON.parse(S.drag.snap);const r=moveSnap(S.drag.mv,[raw[0]-S.drag.start[0],raw[1]-S.drag.start[1]]);const d=r.d;S.snap=r.snap;
       S.proj.ents=orig;const M=mTrans(d[0],d[1]);const wallIds=new Set();for(const id of S.sel){const x=byId(id);if(x&&editable(x)){xformEnt(x,M);if(x.type==="wall")wallIds.add(x.id);}}
       ents().forEach(dr=>{if(dr.type==="door"&&wallIds.has(dr.wallId)&&!S.sel.has(dr.id))xformEnt(dr,M);});S.drag.moved=true;}
     else if(S.box){S.box.b=raw;}return;}
