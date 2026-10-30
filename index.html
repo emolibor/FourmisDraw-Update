@@ -232,7 +232,7 @@ svg.i{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.7;stro
 <script>
 (function(){
   if(!window.FDBridge)return;
-  window.FD_NATIVE=true;window.FD_WEBVER=parseInt('6',10)||0;
+  window.FD_NATIVE=true;window.FD_WEBVER=parseInt('7',10)||0;
   var seq=0,pend={};
   window.__fdReply=function(id,ok,payload){var p=pend[id];if(!p)return;delete pend[id];ok?p.res(payload):p.rej(payload);};
   function call(op,args){return new Promise(function(res,rej){var id=++seq;pend[id]={res:res,rej:rej};args.id=id;args.op=op;FDBridge.postMessage(JSON.stringify(args));});}
@@ -749,27 +749,48 @@ function interpretSketch(strokes){const all=[].concat(...strokes);if(all.length<
     const k=proj.length,s0=proj[0].s,s1=proj[k-1].s;const sp=k>1?(s1-s0)/(k-1):Math.max(25,medLen*0.28);const lc=proj.reduce((a,p)=>a+p.l,0)/k;const Lt=Math.round(g.map(t=>t.len).sort((x,y)=>x-y)[Math.floor(k/2)]/5)*5||100;
     const P=(s,l)=>[c0[0]+v[0]*s+u[0]*l,c0[1]+v[1]*s+u[1]*l];const tr=[];for(let i=0;i<k;i++){const s=s0+i*sp;tr.push([P(s,lc-Lt/2),P(s,lc+Lt/2)]);}
     const sa=s0-sp,sb=s1+sp;const rect=[P(sa,lc-Lt/2),P(sb,lc-Lt/2),P(sb,lc+Lt/2),P(sa,lc+Lt/2)];
-    return {treads:tr,rect,spacing:sp,width:Lt,u,v,ends:[P(sa,lc),P(sb,lc)],n:k+1,order:Math.min(...g.map(t=>t.order)),th};});
+    return {treads:tr,rect,spacing:sp,width:Lt,u,v,ends:[P(sa,lc),P(sb,lc)],n:k+1,order:Math.min(...g.map(t=>t.order)),th,raw:g};});
   // order flights by drawing order of their first tread, orient by chaining
   flights.sort((a,b)=>a.order-b.order);const ordered=[flights.shift()];while(flights.length){const last=ordered[ordered.length-1];let bi=0,bd=1e18;flights.forEach((f,i)=>{const d=Math.min(...f.ends.map(p=>Math.min(...last.ends.map(q=>dist(p,q)))));if(d<bd){bd=d;bi=i;}});ordered.push(flights.splice(bi,1)[0]);}
   const start=strokes[0][0];
   ordered.forEach((f,i)=>{let entry;if(i===0){const nxt=ordered[1];if(nxt){const d0=Math.min(...nxt.ends.map(q=>dist(f.ends[0],q))),d1=Math.min(...nxt.ends.map(q=>dist(f.ends[1],q)));entry=d0>d1?0:1;}else entry=dist(f.ends[0],start)<=dist(f.ends[1],start)?0:1;}
     else{const prev=ordered[i-1].exit;entry=dist(f.ends[0],prev)<=dist(f.ends[1],prev)?0:1;}
     f.entry=f.ends[entry];f.exit=f.ends[1-entry];if(entry===1)f.treads.reverse();const d=[f.exit[0]-f.entry[0],f.exit[1]-f.entry[1]],dl=Math.hypot(d[0],d[1])||1;f.dirv=[d[0]/dl,d[1]/dl];});
-  // first flight direction: if the sketch started nearer its exit, flip whole chain
-  if(ordered.length>1&&dist(start,ordered[ordered.length-1].exit)<dist(start,ordered[0].entry)){}
-  const arrow=[];ordered.forEach((f,i)=>{const a=[f.entry[0]+f.dirv[0]*f.spacing*0.5,f.entry[1]+f.dirv[1]*f.spacing*0.5],b=[f.exit[0]-f.dirv[0]*f.spacing*0.5,f.exit[1]-f.dirv[1]*f.spacing*0.5];
-    if(i>0){const pf=ordered[i-1];const den=pf.dirv[0]*f.dirv[1]-pf.dirv[1]*f.dirv[0];if(Math.abs(den)>0.3){const w=[f.entry[0]-pf.exit[0],f.entry[1]-pf.exit[1]];const t=(w[0]*f.dirv[1]-w[1]*f.dirv[0])/den;const X=[pf.exit[0]+pf.dirv[0]*t,pf.exit[1]+pf.dirv[1]*t];if(t>-pf.width&&t<pf.width*2)arrow.push(X);}
-      else{const m=lerp(pf.exit,f.entry,.5);arrow.push([pf.exit[0]+pf.dirv[0]*pf.width/2,pf.exit[1]+pf.dirv[1]*pf.width/2]);}}
-    arrow.push(a,b);});
-  // landings between flights (only used when no outline drawn)
-  const landings=[];const th0=ordered[0].th,U=[Math.cos(th0),Math.sin(th0)],V=[-U[1],U[0]];const toF=p=>[p[0]*U[0]+p[1]*U[1],p[0]*V[0]+p[1]*V[1]],fromF=q=>[q[0]*U[0]+q[1]*V[0],q[0]*U[1]+q[1]*V[1]];
-  for(let i=0;i<ordered.length-1;i++){const a=ordered[i],b=ordered[i+1];const ea=a.rect.filter(p=>dist(p,a.exit)<a.width*0.75),eb=b.rect.filter(p=>dist(p,b.entry)<b.width*0.75);const pts=ea.concat(eb).map(toF);if(pts.length<3)continue;
-    const x0=Math.min(...pts.map(p=>p[0])),x1=Math.max(...pts.map(p=>p[0])),y0=Math.min(...pts.map(p=>p[1])),y1=Math.max(...pts.map(p=>p[1]));landings.push({pts:[[x0,y0],[x1,y0],[x1,y1],[x0,y1]].map(fromF)});}
-  // outline strokes: simplify and square up relative to the stair's main angle
-  const outlines=outl.map(st=>{let p=rdp(st,Math.max(0.025*diag,5));const closed=dist(p[0],p[p.length-1])<Math.max(0.12*pathLen(st),20);if(closed)p=p.slice(0,-1);
-    let q=p.map(toF);const n=q.length,m=closed?n:n-1;for(let it=0;it<2;it++)for(let i=0;i<m;i++){const a=q[i],b=q[(i+1)%n];const an=Math.atan2(b[1]-a[1],b[0]-a[0]);const sn=Math.round(an/(Math.PI/2))*(Math.PI/2);if(Math.abs(an-sn)<rad(15)){if(Math.abs(Math.sin(sn))<.5){const y=(a[1]+b[1])/2;a[1]=y;b[1]=y;}else{const x=(a[0]+b[0])/2;a[0]=x;b[0]=x;}}}
-    return {pts:q.map(fromF),closed:closed&&n>2};}).filter(o=>o.pts.length>1);
+  // ---- clean, symmetric geometry: treads clipped to the drawn outline, flights centred, equal spacing ----
+  const segs=[];outl.forEach(st=>{const q=rdp(st,4);for(let k=0;k<q.length-1;k++)segs.push([q[k],q[k+1]]);});
+  const rayHits=(o,d)=>{const out=[];for(const sg of segs){const r=[sg[1][0]-sg[0][0],sg[1][1]-sg[0][1]];const den=d[0]*r[1]-d[1]*r[0];if(Math.abs(den)<1e-9)continue;const w=[sg[0][0]-o[0],sg[0][1]-o[1]];const t=(w[0]*r[1]-w[1]*r[0])/den,uu=(w[0]*d[1]-w[1]*d[0])/den;if(uu>=-0.02&&uu<=1.02)out.push(t);}return out;};
+  const med=a=>{const b=a.slice().sort((x,y)=>x-y);return b.length?b[Math.floor(b.length/2)]:0;};
+  ordered.forEach(f=>{const v=f.dirv,u=[-v[1],v[0]],O=f.entry;f.U=u;f.O=O;
+    const S=p=>(p[0]-O[0])*v[0]+(p[1]-O[1])*v[1],Lc=p=>(p[0]-O[0])*u[0]+(p[1]-O[1])*u[1];
+    const lat=f.raw.map(t=>{const half=t.len/2;const ts=rayHits(t.mid,u);const neg=ts.filter(x=>x<0&&x>-half*1.6),pos=ts.filter(x=>x>0&&x<half*1.6);
+      const ea=Lc(t.a),eb=Lc(t.b),m=Lc(t.mid);let lo=Math.min(ea,eb),hi=Math.max(ea,eb);if(neg.length)lo=m+Math.max(...neg);if(pos.length)hi=m+Math.min(...pos);return [lo,hi];});
+    f.lc=(med(lat.map(x=>x[0]))+med(lat.map(x=>x[1])))/2;f.w=med(lat.map(x=>x[1]-x[0]));
+    f.ss=f.raw.map(t=>S(t.mid)).sort((x,y)=>x-y);const k=f.ss.length;f.sp=k>1?(f.ss[k-1]-f.ss[0])/(k-1):Math.max(25,f.w*0.28);
+    f.Pt=(sv,l)=>[O[0]+v[0]*sv+u[0]*l,O[1]+v[1]*sv+u[1]*l];
+    const cl=f.Pt(0,f.lc);const hits=rayHits(cl,v);
+    const b0=hits.filter(x=>x<f.ss[0]-f.sp*0.3&&x>f.ss[0]-f.sp*2.5);f.start=b0.length?Math.max(...b0):f.ss[0]-f.sp;
+    const b1=hits.filter(x=>x>f.ss[k-1]+f.sp*0.3&&x<f.ss[k-1]+f.sp*2.5);f.end=b1.length?Math.min(...b1):f.ss[k-1]+f.sp;});
+  const W=Math.max(40,Math.round(med(ordered.map(f=>f.w))/5)*5);
+  const landings=[],junction=[];
+  const inF=(f,p)=>[(p[0]-f.O[0])*f.dirv[0]+(p[1]-f.O[1])*f.dirv[1],(p[0]-f.O[0])*f.U[0]+(p[1]-f.O[1])*f.U[1]];
+  for(let i=0;i<ordered.length-1;i++){const a=ordered[i],b=ordered[i+1];const dot=a.dirv[0]*b.dirv[0]+a.dirv[1]*b.dirv[1];
+    if(Math.abs(dot)<0.5){// corner landing: where the two bands cross
+      const cB=b.Pt(0,b.lc);const ca=inF(a,cB);const sC=ca[0];// along a, centre line of b's band
+      const C=a.Pt(sC,a.lc);a.end=sC-W/2;const cb=inF(b,C);b.start=cb[0]+W/2;
+      landings.push({pts:[a.Pt(sC-W/2,a.lc-W/2),a.Pt(sC+W/2,a.lc-W/2),a.Pt(sC+W/2,a.lc+W/2),a.Pt(sC-W/2,a.lc+W/2)]});junction.push([C]);}
+    else{// parallel flights (U): landing across both at the far end
+      const bFirst=inF(a,b.Pt(b.ss[0]-b.sp,b.lc))[0];const E=Math.max(a.ss[a.ss.length-1]+a.sp,bFirst);a.end=E;
+      const lb=inF(a,b.Pt(0,b.lc))[1];const lo=Math.min(a.lc,lb)-W/2,hi=Math.max(a.lc,lb)+W/2;
+      landings.push({pts:[a.Pt(E,lo),a.Pt(E+W,lo),a.Pt(E+W,hi),a.Pt(E,hi)]});b.start=inF(b,a.Pt(E,lb))[0];
+      junction.push([a.Pt(E+W/2,a.lc),a.Pt(E+W/2,lb)]);}}
+  const arrow=[];
+  ordered.forEach((f,i)=>{const k=f.raw.length,run=f.end-f.start,sp=run/(k+1);f.spacing=sp;
+    f.treads=[];for(let t=1;t<=k;t++){const sv=f.start+t*sp;f.treads.push([f.Pt(sv,f.lc-W/2),f.Pt(sv,f.lc+W/2)]);}
+    f.rect=[f.Pt(f.start,f.lc-W/2),f.Pt(f.end,f.lc-W/2),f.Pt(f.end,f.lc+W/2),f.Pt(f.start,f.lc+W/2)];
+    f.entry=f.Pt(f.start,f.lc);f.exit=f.Pt(f.end,f.lc);f.n=k+1;f.width=W;
+    if(i===0)arrow.push(f.Pt(f.start+sp/2,f.lc));else junction[i-1].forEach(p=>arrow.push(p));
+    if(i===ordered.length-1)arrow.push(f.Pt(f.end-sp/2,f.lc));});
+  const outlines=[];
   const n=ordered.reduce((s,f)=>s+f.n,0);const ent={kind:"sketch",flights:ordered.map(f=>({treads:f.treads,rect:f.rect,spacing:f.spacing,entry:f.entry,exit:f.exit,dirv:f.dirv,n:f.n})),landings,outlines,arrow,n,x:arrow[0][0],y:arrow[0][1],ang:0,m:1,width:ordered[0].width,depth:Math.round(ordered[0].spacing)};
   const bx=bbox(Object.assign({type:"stair"},ent));const kinds=ordered.length===1?"Tek kollu":ordered.length===2?"İki kollu":ordered.length+" kollu";
   return {ent,label:kinds+" merdiven · "+n+" basamak · basamak derinliği ≈ "+fmt(ordered[0].spacing)+" cm · "+fmt(bx[2]-bx[0])+" × "+fmt(bx[3]-bx[1])+" cm"};}
