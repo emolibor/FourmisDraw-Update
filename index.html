@@ -232,7 +232,7 @@ svg.i{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.7;stro
 <script>
 (function(){
   if(!window.FDBridge)return;
-  window.FD_NATIVE=true;window.FD_WEBVER=parseInt('3',10)||0;
+  window.FD_NATIVE=true;window.FD_WEBVER=parseInt('4',10)||0;
   var seq=0,pend={};
   window.__fdReply=function(id,ok,payload){var p=pend[id];if(!p)return;delete pend[id];ok?p.res(payload):p.rej(payload);};
   function call(op,args){return new Promise(function(res,rej){var id=++seq;pend[id]={res:res,rej:rej};args.id=id;args.op=op;FDBridge.postMessage(JSON.stringify(args));});}
@@ -558,7 +558,7 @@ function label(p,txt){const q=w2s(p);const c=g;c.font="600 12px 'IBM Plex Mono',
 function lenLabel(a,b){const L=dist(a,b);const ang=deg(Math.atan2(-(b[1]-a[1]),b[0]-a[0]));label(b,fmt(L)+" cm  ∠"+fmt((ang+360)%360)+"°");}
 
 /* ================= snapping ================= */
-function snapCands(wm){const out=[];for(const e of ents()){if(!visible(e))continue;
+function snapCands(wm,ex){const out=[];for(const e of ents()){if(!visible(e)||(ex&&ex.has(e.id)))continue;
   if(e.type==="wall"){out.push({k:wm?"wend":"end",p:[e.x1,e.y1],r:wm?e.thick/2:0},{k:wm?"wend":"end",p:[e.x2,e.y2],r:wm?e.thick/2:0},{k:"mid",p:[(e.x1+e.x2)/2,(e.y1+e.y2)/2]});if(!wm)wallPolys(e).forEach(r=>r.forEach(p=>out.push({k:"end",p})));}
   else if(e.type==="line"){out.push({k:"end",p:[e.x1,e.y1]},{k:"end",p:[e.x2,e.y2]},{k:"mid",p:[(e.x1+e.x2)/2,(e.y1+e.y2)/2]});}
   else if(e.type==="pline"||e.type==="rect"||e.type==="mline"){e.pts.forEach(p=>out.push({k:"end",p}));if(e.type==="mline")mlinePrims(e).forEach(pr=>(pr.pts||[pr.a,pr.b]).forEach(q=>out.push({k:"end",p:q})));const n=e.pts.length;for(let i=0;i<n-(e.closed?0:1);i++)out.push({k:"mid",p:lerp(e.pts[i],e.pts[(i+1)%n],.5)});}
@@ -574,11 +574,15 @@ function nearestOn(p,tol,wm){let best=null;for(const e of ents()){if(!visible(e)
 function snapPoint(raw,from){const tol=16/S.view.z;let p=raw.slice();
   if(S.ortho&&from){const dx=p[0]-from[0],dy=p[1]-from[1];p=Math.abs(dx)>=Math.abs(dy)?[p[0],from[1]]:[from[0],p[1]];}
   const wm=S.tool==="wall"&&!S.cmd;let best=null;const pri={wend:-1,end:0,int:0,mid:1,cen:1,grid:3,near:4};
-  for(const c of snapCands(wm)){const d=dist(raw,c.p);if(d<(c.k==="wend"?Math.max(tol*1.5,c.r+tol):tol)&&(!best||pri[c.k]<pri[best.k]||(pri[c.k]===pri[best.k]&&d<best.d)))best={k:c.k,p:c.p,d};}
+  // while moving/copying/editing a selection: never snap to the selection itself, only to fixed points (no grid / along-line snaps)
+  const ex=(S.cmd&&S.cmd.base)||S.drag?S.sel:null;const ls=S.lastSnap;
+  for(const c of snapCands(wm,ex)){const d=dist(raw,c.p);let tl=c.k==="wend"?Math.max(tol*1.5,c.r+tol):tol;if(ls&&dist(c.p,ls)<0.01)tl*=1.5;if(d<tl&&(!best||pri[c.k]<pri[best.k]||(pri[c.k]===pri[best.k]&&d<best.d)))best={k:c.k,p:c.p,d};}
   if(wm&&S.ortho&&from&&(!best||best.k!=="wend")){const hz=p[1]===from[1];let bx=null;
     for(const w of ents()){if(w.type!=="wall"||!visible(w))continue;const a=[w.x1,w.y1],b=[w.x2,w.y2];const t=hz?segInter([from[0]-1e6,from[1]],[from[0]+1e6,from[1]],a,b):segInter([from[0],from[1]-1e6],[from[0],from[1]+1e6],a,b);if(t==null)continue;
       const X=hz?[from[0]-1e6+2e6*t,from[1]]:[from[0],from[1]-1e6+2e6*t];if(dist(X,from)<1)continue;const d=dist(X,p);if(d<w.thick/2+tol&&(!bx||d<bx.d))bx={d,p:X};}
     if(bx)return {k:"near",p:bx.p};}
+  if(ex){S.lastSnap=best?best.p:null;if(!best)return {k:null,p};}
+  S.lastSnap=best?best.p:null;
   if(best){if(best.k==="wend")best.k="end";let q=best.p;if(S.ortho&&from){const dx=Math.abs(q[0]-from[0]),dy=Math.abs(q[1]-from[1]);q=dx>=dy?[q[0],from[1]]:[from[0],q[1]];}return {k:best.k,p:q};}
   if(S.snapGrid){const gp=[Math.round(p[0]/100)*100,Math.round(p[1]/100)*100];if(S.ortho&&from){if(p[1]===from[1]&&Math.abs(gp[0]-p[0])<tol)return {k:"grid",p:[gp[0],p[1]]};if(p[0]===from[0]&&Math.abs(gp[1]-p[1])<tol)return {k:"grid",p:[p[0],gp[1]]};}else if(dist(gp,p)<tol)return {k:"grid",p:gp};}
   const n=nearestOn(p,tol*.75,wm);if(n&&!(S.ortho&&from))return {k:"near",p:n.p};
