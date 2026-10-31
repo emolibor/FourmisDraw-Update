@@ -232,7 +232,7 @@ svg.i{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.7;stro
 <script>
 (function(){
   if(!window.FDBridge)return;
-  window.FD_NATIVE=true;window.FD_WEBVER=parseInt('10',10)||0;
+  window.FD_NATIVE=true;window.FD_WEBVER=parseInt('11',10)||0;
   var seq=0,pend={};
   window.__fdReply=function(id,ok,payload){var p=pend[id];if(!p)return;delete pend[id];ok?p.res(payload):p.rej(payload);};
   function call(op,args){return new Promise(function(res,rej){var id=++seq;pend[id]={res:res,rej:rej};args.id=id;args.op=op;FDBridge.postMessage(JSON.stringify(args));});}
@@ -243,7 +243,7 @@ svg.i{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.7;stro
   async function toB64(data){var buf;if(data instanceof Blob)buf=new Uint8Array(await data.arrayBuffer());else if(typeof data==='string')buf=new TextEncoder().encode(data);else buf=new Uint8Array(data.buffer||data);var s='',CH=0x8000;for(var i=0;i<buf.length;i+=CH)s+=String.fromCharCode.apply(null,buf.subarray(i,i+CH));return btoa(s);}
   var downloads={save:async function(o){await call('save',{filename:o.filename,b64:await toB64(o.data)});return {status:'saved'};}};
   window.claude={use:async function(n){return n==='db'?db:n==='downloads'?downloads:null;}};
-  window.__fdBack=function(){var m=document.querySelector('#scrim');if(m){document.querySelector('#modalRoot').innerHTML='';return;}var x=document.querySelector('#ctxX');if(x){x.click();return;}var h=document.querySelector('#btnHome');if(h&&!document.querySelector('#editor').hidden)h.click();};
+  window.__fdBack=function(){var v3=document.querySelector('#v3close');if(v3){v3.click();return;}var m=document.querySelector('#scrim');if(m){document.querySelector('#modalRoot').innerHTML='';return;}var x=document.querySelector('#ctxX');if(x){x.click();return;}var h=document.querySelector('#btnHome');if(h&&!document.querySelector('#editor').hidden)h.click();};
 })();
 </script>
 <script>
@@ -1310,7 +1310,16 @@ function fitView(){const b=extents(ents());let w=b[2]-b[0]+200,h=b[3]-b[1]+200;i
 
 /* ---------- 3D view ---------- */
 $("#btn3d").onclick=open3D;
-async function open3D(){const root=document.createElement("div");root.id="v3d";root.innerHTML='<canvas></canvas><div class="float topbar"><button class="ib" type="button" id="v3close" aria-label="3D görünümü kapat">'+ico("close")+'</button><span style="font-weight:600;padding:0 8px">3D görünüm</span></div><div class="float status" style="display:flex">Sürükle: döndür · İki parmak / tekerlek: yakınlaştır · Yüksekliği girilmeyen duvarlar 280 cm, kapılar 210 cm gösterilir</div>';document.body.appendChild(root);
+async function open3D(){const root=document.createElement("div");root.id="v3d";root.innerHTML='<canvas></canvas><div class="float" style="top:calc(10px + env(safe-area-inset-top,0px));left:max(12px,env(safe-area-inset-left,0px));display:flex;align-items:center;gap:4px;padding:4px"><button class="btn primary" type="button" id="v3close"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>2D çizime dön</button><span style="font-weight:600;padding:0 10px">3D görünüm</span></div>'
+  +'<div class="float" style="right:max(12px,env(safe-area-inset-right,0px));top:50%;transform:translateY(-50%);display:flex;flex-direction:column;gap:4px;padding:6px">'
+  +'<button class="ib" type="button" id="v3in" aria-label="Yakınlaştır"><svg class="i" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>'
+  +'<button class="ib" type="button" id="v3out" aria-label="Uzaklaştır"><svg class="i" viewBox="0 0 24 24"><path d="M5 12h14"/></svg></button>'
+  +'<span class="sep" style="width:26px;height:1px;margin:2px auto"></span>'
+  +'<button class="ib" type="button" id="v3top" aria-label="Üstten bak"><svg class="i" viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14"/><path d="M5 12h14M12 5v14"/></svg></button>'
+  +'<button class="ib" type="button" id="v3rotl" aria-label="Sola çevir"><svg class="i" viewBox="0 0 24 24"><path d="M4 11a8 8 0 1 1 2.3 5.7"/><path d="M4 4v7h7"/></svg></button>'
+  +'<button class="ib" type="button" id="v3rotr" aria-label="Sağa çevir"><svg class="i" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg></button>'
+  +'<button class="ib" type="button" id="v3home" aria-label="Görünümü sıfırla"><svg class="i" viewBox="0 0 24 24"><path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/></svg></button></div>'
+  +'<div class="float status" style="display:flex;flex-wrap:wrap;max-width:calc(100vw - 24px)">Tek parmak / kalem: döndür · İki parmak: kaydır ve yakınlaştır · Yüksekliği girilmeyen duvarlar 280 cm, kapılar 210 cm</div>';document.body.appendChild(root);
   root.querySelector("#v3close").onclick=()=>{cancelAnimationFrame(root._raf);root.remove();};
   try{await loadScript("lib/three.min.js");}catch(e){toast("3D kütüphanesi yüklenemedi");root.remove();return;}
   const THREE=window.THREE;const canvas=root.querySelector("canvas");const R=new THREE.WebGLRenderer({canvas,antialias:true});R.setPixelRatio(window.devicePixelRatio||1);
@@ -1341,12 +1350,28 @@ async function open3D(){const root=document.createElement("div");root.id="v3d";r
   let th=-0.8,ph=0.9,rr=size*1.6;const target=new THREE.Vector3(cx,60,cz);
   const place=()=>{cam.position.set(target.x+rr*Math.cos(ph)*Math.cos(th),target.y+rr*Math.sin(ph),target.z+rr*Math.cos(ph)*Math.sin(th));cam.lookAt(target);};
   const resize=()=>{const w=canvas.clientWidth,h=canvas.clientHeight;R.setSize(w,h,false);cam.aspect=w/h;cam.updateProjectionMatrix();};
-  const ptrs=new Map();let pd=0;
-  canvas.addEventListener("pointerdown",e=>{canvas.setPointerCapture(e.pointerId);ptrs.set(e.pointerId,[e.clientX,e.clientY]);if(ptrs.size===2){const v=[...ptrs.values()];pd=Math.hypot(v[0][0]-v[1][0],v[0][1]-v[1][1]);}});
-  canvas.addEventListener("pointermove",e=>{if(!ptrs.has(e.pointerId))return;const prev=ptrs.get(e.pointerId);ptrs.set(e.pointerId,[e.clientX,e.clientY]);if(ptrs.size===1){th+=(e.clientX-prev[0])*0.008;ph=clamp(ph+(e.clientY-prev[1])*0.008,0.05,1.5);}else if(ptrs.size===2){const v=[...ptrs.values()];const d=Math.hypot(v[0][0]-v[1][0],v[0][1]-v[1][1]);if(pd)rr=clamp(rr*pd/d,100,size*10);pd=d;}});
-  const up=e=>{ptrs.delete(e.pointerId);pd=0;};canvas.addEventListener("pointerup",up);canvas.addEventListener("pointercancel",up);
-  canvas.addEventListener("wheel",e=>{e.preventDefault();rr=clamp(rr*Math.exp(e.deltaY*0.001),100,size*10);},{passive:false});
-  const loop=()=>{resize();place();R.render(scene,cam);root._raf=requestAnimationFrame(loop);};loop();}
+  const home={th,ph,rr,t:target.clone()};let goal=null;// smooth camera moves for the buttons
+  const animTo=(g)=>{goal=Object.assign({th,ph,rr,t:target.clone()},g);};
+  // pan: move the look-at point in the camera's screen plane (works at any angle)
+  const pan=(dx,dy)=>{const k=rr*0.0016;const right=new THREE.Vector3(-Math.sin(th),0,Math.cos(th));const fwd=new THREE.Vector3(-Math.cos(th),0,-Math.sin(th));
+    target.addScaledVector(right,-dx*k);target.addScaledVector(fwd,dy*k*(ph>1.2?1:1/Math.max(0.35,Math.sin(ph))));goal=null;};
+  const ptrs=new Map();let pd=0,pm=null,btn=0;
+  canvas.addEventListener("pointerdown",e=>{canvas.setPointerCapture(e.pointerId);ptrs.set(e.pointerId,[e.clientX,e.clientY]);btn=e.button;goal=null;if(ptrs.size===2){const v=[...ptrs.values()];pd=Math.hypot(v[0][0]-v[1][0],v[0][1]-v[1][1]);pm=[(v[0][0]+v[1][0])/2,(v[0][1]+v[1][1])/2];}});
+  canvas.addEventListener("pointermove",e=>{if(!ptrs.has(e.pointerId))return;const prev=ptrs.get(e.pointerId);ptrs.set(e.pointerId,[e.clientX,e.clientY]);const dx=e.clientX-prev[0],dy=e.clientY-prev[1];
+    if(ptrs.size===1){if(btn===1||btn===2||e.shiftKey)pan(dx,dy);else{th+=dx*0.006;ph=clamp(ph+dy*0.005,0.05,1.55);}}
+    else if(ptrs.size===2){const v=[...ptrs.values()];const d=Math.hypot(v[0][0]-v[1][0],v[0][1]-v[1][1]),m=[(v[0][0]+v[1][0])/2,(v[0][1]+v[1][1])/2];if(pd)rr=clamp(rr*pd/d,60,size*10);if(pm)pan(m[0]-pm[0],m[1]-pm[1]);pd=d;pm=m;}});
+  const up=e=>{ptrs.delete(e.pointerId);pd=0;pm=null;if(ptrs.size===1){}};canvas.addEventListener("pointerup",up);canvas.addEventListener("pointercancel",up);
+  canvas.addEventListener("contextmenu",e=>e.preventDefault());
+  canvas.addEventListener("wheel",e=>{e.preventDefault();goal=null;rr=clamp(rr*Math.exp(e.deltaY*0.001),60,size*10);},{passive:false});
+  canvas.addEventListener("dblclick",()=>animTo({rr:rr*0.6}));
+  const B=id=>root.querySelector(id);
+  B("#v3in").onclick=()=>animTo({rr:clamp(rr*0.7,60,size*10)});B("#v3out").onclick=()=>animTo({rr:clamp(rr/0.7,60,size*10)});
+  B("#v3top").onclick=()=>animTo({ph:1.55});B("#v3rotl").onclick=()=>animTo({th:th-Math.PI/4});B("#v3rotr").onclick=()=>animTo({th:th+Math.PI/4});
+  B("#v3home").onclick=()=>animTo({th:home.th,ph:home.ph,rr:home.rr,t:home.t.clone()});
+  const esc3=e=>{if(e.key==="Escape"&&document.body.contains(root))B("#v3close").click();};document.addEventListener("keydown",esc3);
+  const loop=()=>{if(goal){const f=0.2;th+=(goal.th-th)*f;ph+=(goal.ph-ph)*f;rr+=(goal.rr-rr)*f;target.lerp(goal.t,f);if(Math.abs(goal.th-th)+Math.abs(goal.ph-ph)<1e-3&&Math.abs(goal.rr-rr)<1&&target.distanceTo(goal.t)<1)goal=null;}
+    resize();place();R.render(scene,cam);root._raf=requestAnimationFrame(loop);};loop();
+  B("#v3close").onclick=()=>{cancelAnimationFrame(root._raf);document.removeEventListener("keydown",esc3);try{R.dispose();}catch(e){}root.remove();draw();};}
 
 /* ================= home ================= */
 function homeVisible(){return !$("#home").hidden;}
