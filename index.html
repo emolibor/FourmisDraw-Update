@@ -75,9 +75,13 @@ svg.i{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.7;stro
 .empty-note{color:var(--muted);margin:0}
 
 /* ---------- EDITOR ---------- */
+#ui{position:fixed;left:0;top:0;width:100%;height:100%;transform-origin:50% 50%}
+#ui{pointer-events:none}#home,.scrim,.toast,#v3d{pointer-events:auto}
+#ui.anim{transition:transform .35s cubic-bezier(.2,.8,.2,1),width .35s,height .35s,left .35s,top .35s}
+#editor{pointer-events:none}#editor .float{pointer-events:auto}
 #editor{position:fixed;inset:0;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
 #editor input{-webkit-user-select:text;user-select:text}
-#cv{position:absolute;inset:0;width:100%;height:100%;touch-action:none;display:block;background:var(--canvas)}
+#cv{position:fixed;inset:0;width:100%;height:100%;touch-action:none;display:block;background:var(--canvas)}
 .float{position:absolute;background:var(--surface);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow)}
 .topstack{position:absolute;top:calc(10px + env(safe-area-inset-top,0px));left:max(12px,env(safe-area-inset-left,0px));right:max(12px,env(safe-area-inset-right,0px));display:flex;flex-direction:column;align-items:center;gap:8px;pointer-events:none;z-index:3}
 .toprow{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;width:100%;flex-wrap:wrap;pointer-events:none}
@@ -170,6 +174,8 @@ svg.i{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.7;stro
 @media (prefers-reduced-motion: reduce){*{transition:none!important}}
 </style>
 
+<canvas id="cv" hidden></canvas>
+<div id="ui">
 <div id="home">
   <div class="home-in">
     <div class="home-top">
@@ -186,7 +192,6 @@ svg.i{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.7;stro
 </div>
 
 <div id="editor" hidden>
-  <canvas id="cv"></canvas>
   <div class="topstack" id="topstack"><div class="toprow">
   <div class="float topbar">
     <button class="ib" id="btnHome" type="button" aria-label="Projelere dön"><svg class="i" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>
@@ -227,12 +232,13 @@ svg.i{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.7;stro
 </div>
 
 <div id="modalRoot"></div>
+</div>
 <input type="file" id="fileIn" accept=".dxf,.png,.jpg,.jpeg,.pdf" hidden>
 
 <script>
 (function(){
   if(!window.FDBridge)return;
-  window.FD_NATIVE=true;window.FD_WEBVER=parseInt('11',10)||0;
+  window.FD_NATIVE=true;window.FD_WEBVER=parseInt('12',10)||0;
   var seq=0,pend={};
   window.__fdReply=function(id,ok,payload){var p=pend[id];if(!p)return;delete pend[id];ok?p.res(payload):p.rej(payload);};
   function call(op,args){return new Promise(function(res,rej){var id=++seq;pend[id]={res:res,rej:rej};args.id=id;args.op=op;FDBridge.postMessage(JSON.stringify(args));});}
@@ -263,7 +269,7 @@ function segInter(a,b,c,d){const r=[b[0]-a[0],b[1]-a[1]],s=[d[0]-c[0],d[1]-c[1]]
 function circInter(a,b,c,r){const d=[b[0]-a[0],b[1]-a[1]],f=[a[0]-c[0],a[1]-c[1]];const A=d[0]*d[0]+d[1]*d[1],B=2*(f[0]*d[0]+f[1]*d[1]),C=f[0]*f[0]+f[1]*f[1]-r*r;let D=B*B-4*A*C;if(D<0||A===0)return [];D=Math.sqrt(D);return [(-B-D)/(2*A),(-B+D)/(2*A)];}
 function arcPts(c,r,a0,a1,n){const out=[];n=n||Math.max(8,Math.ceil(Math.abs(a1-a0)/(Math.PI/24)));for(let i=0;i<=n;i++){const a=a0+(a1-a0)*i/n;out.push([c[0]+r*Math.cos(a),c[1]+r*Math.sin(a)]);}return out;}
 function rot(p,a){const c=Math.cos(a),s=Math.sin(a);return [p[0]*c-p[1]*s,p[0]*s+p[1]*c];}
-function toast(msg){const t=document.createElement("div");t.className="toast";t.textContent=msg;document.body.appendChild(t);setTimeout(()=>t.remove(),2600);}
+function toast(msg){const t=document.createElement("div");t.className="toast";t.textContent=msg;(document.getElementById("ui")||document.body).appendChild(t);setTimeout(()=>t.remove(),2600);}
 function loadScript(src){return new Promise((res,rej)=>{if(document.querySelector('script[src="'+src+'"]'))return res();const s=document.createElement("script");s.src=src;s.onload=res;s.onerror=()=>rej(new Error("load "+src));document.head.appendChild(s);});}
 
 /* ================= icons ================= */
@@ -1319,7 +1325,7 @@ async function open3D(){const root=document.createElement("div");root.id="v3d";r
   +'<button class="ib" type="button" id="v3rotl" aria-label="Sola çevir"><svg class="i" viewBox="0 0 24 24"><path d="M4 11a8 8 0 1 1 2.3 5.7"/><path d="M4 4v7h7"/></svg></button>'
   +'<button class="ib" type="button" id="v3rotr" aria-label="Sağa çevir"><svg class="i" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg></button>'
   +'<button class="ib" type="button" id="v3home" aria-label="Görünümü sıfırla"><svg class="i" viewBox="0 0 24 24"><path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/></svg></button></div>'
-  +'<div class="float status" style="display:flex;flex-wrap:wrap;max-width:calc(100vw - 24px)">Tek parmak / kalem: döndür · İki parmak: kaydır ve yakınlaştır · Yüksekliği girilmeyen duvarlar 280 cm, kapılar 210 cm</div>';document.body.appendChild(root);
+  +'<div class="float status" style="display:flex;flex-wrap:wrap;max-width:calc(100vw - 24px)">Tek parmak / kalem: döndür · İki parmak: kaydır ve yakınlaştır · Yüksekliği girilmeyen duvarlar 280 cm, kapılar 210 cm</div>';$("#ui").appendChild(root);
   root.querySelector("#v3close").onclick=()=>{cancelAnimationFrame(root._raf);root.remove();};
   try{await loadScript("lib/three.min.js");}catch(e){toast("3D kütüphanesi yüklenemedi");root.remove();return;}
   const THREE=window.THREE;const canvas=root.querySelector("canvas");const R=new THREE.WebGLRenderer({canvas,antialias:true});R.setPixelRatio(window.devicePixelRatio||1);
@@ -1422,6 +1428,18 @@ function updUnrot(){const r=S.view.r||0;$("#btnUnrot").hidden=!(S.proj&&Math.abs
 function onOrient(){const a=scrAngle();let d=a-lastAng;lastAng=a;if(!d||!S.proj||!SET.lockRot)return;S.view.r=((S.view.r||0)-rad(d))%(2*Math.PI);updUnrot();setTimeout(draw,50);setTimeout(draw,350);}
 if(screen.orientation&&screen.orientation.addEventListener)screen.orientation.addEventListener("change",onOrient);else window.addEventListener("orientationchange",onOrient);
 $("#btnUnrot").onclick=()=>{S.view.r=0;updUnrot();draw();};
+/* ---- keep the canvas only while a project is open ---- */
+new MutationObserver(()=>{cv.hidden=$("#editor").hidden;if(!cv.hidden)draw();}).observe($("#editor"),{attributes:true,attributeFilter:["hidden"]});
+/* ---- app (screen locked): the plan never turns; only the menus follow the tablet ---- */
+const UIR={deg:0,base:null,q:null};
+function layoutUI(){const ui=$("#ui"),W=window.innerWidth,H=window.innerHeight,side=Math.abs(UIR.deg)%180===90;const w=side?H:W,h=side?W:H;
+  ui.style.width=w+"px";ui.style.height=h+"px";ui.style.left=((W-w)/2)+"px";ui.style.top=((H-h)/2)+"px";ui.style.transform=UIR.deg?"rotate("+UIR.deg+"deg)":"";}
+function setUIRot(deg){if(deg===UIR.deg)return;const ui=$("#ui");ui.classList.add("anim");UIR.deg=deg;layoutUI();clearTimeout(UIR.t);UIR.t=setTimeout(()=>ui.classList.remove("anim"),400);}
+if(window.FD_NATIVE&&window.FDLocked){
+  window.addEventListener("devicemotion",e=>{const g=e.accelerationIncludingGravity;if(!g||g.x==null)return;const gx=g.x,gy=g.y;if(Math.hypot(gx,gy)<4)return;// lying flat: keep as is
+    const a=Math.atan2(gx,gy)*180/Math.PI;let q=Math.round(a/90)*90;if(Math.abs(a-q)>30)return;q=((q%360)+360)%360;// dead zone between quadrants
+    if(UIR.base==null)UIR.base=q;if(!SET.lockRot){setUIRot(0);return;}let d=((q-UIR.base)%360+360)%360;if(d===270)d=-90;setUIRot(d);});
+  window.addEventListener("resize",layoutUI);}
 /* ================= boot ================= */
 applyTheme();renderHome();
 (async()=>{try{const db=window.claude&&window.claude.use?await window.claude.use("db"):null;if(db){DB=db;storeKind="db";
