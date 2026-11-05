@@ -240,7 +240,7 @@ svg.i{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.7;stro
 <script>
 (function(){
   if(!window.FDBridge)return;
-  window.FD_NATIVE=true;window.FD_WEBVER=parseInt('13',10)||0;
+  window.FD_NATIVE=true;window.FD_WEBVER=parseInt('14',10)||0;
   var seq=0,pend={};
   window.__fdReply=function(id,ok,payload){var p=pend[id];if(!p)return;delete pend[id];ok?p.res(payload):p.rej(payload);};
   function call(op,args){return new Promise(function(res,rej){var id=++seq;pend[id]={res:res,rej:rej};args.id=id;args.op=op;FDBridge.postMessage(JSON.stringify(args));});}
@@ -419,11 +419,13 @@ function wallPolys(e){return wallSegs(e).map(s=>wallRect(e,s[0],s[1]));}
 // prim: {k:"l",a,b} | {k:"p",pts,closed} | {k:"c",c,r} ; all world coords
 function xf(e,pts){const c=Math.cos(e.ang||0),s=Math.sin(e.ang||0);return pts.map(p=>[e.x+p[0]*c-p[1]*s,e.y+p[0]*s+p[1]*c]);}
 function doorLocal(d){const w=d.width,t=d.thick||20,s=d.flip||1,h=d.hand||1,P=[];const face=s*t/2;
-  if(d.kind==="single"){const hx=-h*w/2;P.push({k:"p",pts:[[hx,face],[hx,face+s*w]]});
+  const LEAF=5;// door leaf drawn as a 5 cm thick panel, thickness taken into the opening
+  const leaf=(x,inw,len)=>({k:"p",pts:[[x,face],[x+inw*LEAF,face],[x+inw*LEAF,face+s*len],[x,face+s*len]],closed:true});
+  if(d.kind==="single"){const hx=-h*w/2;P.push(leaf(hx,h,w));
     P.push({k:"p",pts:swingArc([hx,face],w,[hx,face+s*w],[-hx,face])});}
-  else if(d.kind==="double"){const q=w/2;P.push({k:"p",pts:[[-q,face],[-q,face+s*q]]},{k:"p",pts:[[q,face],[q,face+s*q]]});
+  else if(d.kind==="double"){const q=w/2;P.push(leaf(-q,1,q),leaf(q,-1,q));
     P.push({k:"p",pts:swingArc([-q,face],q,[-q,face+s*q],[0,face])},{k:"p",pts:swingArc([q,face],q,[q,face+s*q],[0,face])});}
-  else if(d.kind==="sliding"){const o=t/6;P.push({k:"p",pts:[[-w/2,-o-3],[w*0.1,-o-3],[w*0.1,-o+3],[-w/2,-o+3]],closed:true},{k:"p",pts:[[-w*0.1,o-3],[w/2,o-3],[w/2,o+3],[-w*0.1,o+3]],closed:true});}
+  else if(d.kind==="sliding"){const o=t/6,hl=LEAF/2;P.push({k:"p",pts:[[-w/2,-o-hl],[w*0.1,-o-hl],[w*0.1,-o+hl],[-w/2,-o+hl]],closed:true},{k:"p",pts:[[-w*0.1,o-hl],[w/2,o-hl],[w/2,o+hl],[-w*0.1,o+hl]],closed:true});}
   else if(d.kind==="industrial"){const f2=face+s*12;P.push({k:"p",pts:[[-w/2,face],[w/2,face],[w/2,f2],[-w/2,f2]],closed:true});P.push({k:"l",a:[-w/2,face],b:[w/2,f2]});P.push({k:"l",a:[w/2,face],b:[-w/2,f2]});}
   return P;}
 function swingArc(c,r,from,to){const a0=Math.atan2(from[1]-c[1],from[0]-c[0]);let a1=Math.atan2(to[1]-c[1],to[0]-c[0]);let d=a1-a0;while(d>Math.PI)d-=2*Math.PI;while(d<-Math.PI)d+=2*Math.PI;return arcPts(c,r,a0,a0+d,12);}
