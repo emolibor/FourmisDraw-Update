@@ -248,7 +248,7 @@ svg.i{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.7;stro
 <script>
 (function(){
   if(!window.FDBridge)return;
-  window.FD_NATIVE=true;window.FD_WEBVER=parseInt('20',10)||0;
+  window.FD_NATIVE=true;window.FD_WEBVER=parseInt('21',10)||0;
   var seq=0,pend={};
   window.__fdReply=function(id,ok,payload){var p=pend[id];if(!p)return;delete pend[id];ok?p.res(payload):p.rej(payload);};
   function call(op,args){return new Promise(function(res,rej){var id=++seq;pend[id]={res:res,rej:rej};args.id=id;args.op=op;FDBridge.postMessage(JSON.stringify(args));});}
@@ -660,7 +660,15 @@ function nearestOn(p,tol,wm){let best=null;for(const e of ents()){if(!visible(e)
 function buildMoveSnap(){const sel=[...S.sel].map(byId).filter(Boolean);const src=snapCands(false,null,sel).filter(c=>c.k!=="grid"&&c.k!=="near");
   const tgt=snapCands(false,S.sel).filter(c=>c.k==="end"||c.k==="mid"||c.k==="cen");
   const faces=[];for(const e of ents()){if(S.sel.has(e.id)||!visible(e))continue;if(e.type==="wall")wallPolys(e).forEach(r=>{for(let i=0;i<4;i++)faces.push([r[i],r[(i+1)%4]]);});else if(e.type==="line")faces.push([[e.x1,e.y1],[e.x2,e.y2]]);else if(e.type==="pline"||e.type==="rect"){const P=e.pts;for(let i=0;i<P.length-(e.closed?0:1);i++)faces.push([P[i],P[(i+1)%P.length]]);}}
-  return {src,tgt,faces:faces.filter(f=>dist(f[0],f[1])>1),last:null};}
+  // points of other elements on screen: an ortho move lines the selection up with them (imaginary alignment line)
+  const vw=W(),vh=H();const hz=tgt.filter(c=>c.k!=="mid").filter(c=>{const q=w2s(c.p);return q[0]>-80&&q[1]>-80&&q[0]<vw+80&&q[1]<vh+80;});
+  return {src,tgt,hz,faces:faces.filter(f=>dist(f[0],f[1])>1),last:null,lastA:null};}
+// ortho move: shift along the moving axis so one of the selection's points sits exactly in line with a fixed point
+function orthoAlign(mv,d){if(!mv.hz||!mv.hz.length)return null;const ax=Math.abs(d[0])>=Math.abs(d[1])?0:1,tol=10/S.view.z;let b=null;
+  for(const s of mv.src){const v=s.p[ax]+d[ax];for(const t of mv.hz){if(Math.abs(t.p[1-ax]-(s.p[1-ax]+d[1-ax]))<1)continue;let tl=tol;if(mv.lastA&&mv.lastA.s===s&&mv.lastA.t===t)tl*=1.6;const dd=Math.abs(t.p[ax]-v);
+    if(dd<tl&&(!b||dd<b.dd-1e-6||(Math.abs(dd-b.dd)<1e-6&&dist(t.p,[s.p[0]+d[0],s.p[1]+d[1]])<dist(b.t.p,[b.s.p[0]+d[0],b.s.p[1]+d[1]]))))b={dd,s,t};}}
+  mv.lastA=b?{s:b.s,t:b.t}:null;if(!b)return null;const nd=d.slice();nd[ax]=b.t.p[ax]-b.s.p[ax];const p=[b.s.p[0]+nd[0],b.s.p[1]+nd[1]];
+  return {d:nd,snap:{k:"track",p,refs:[b.t.p]}};}
 /* ---------- alignment tracking (AutoCAD-style): rest the pen on a snap point to pick it up as a reference ---------- */
 function trackReset(){S.track=[];clearTimeout(S.acqT);S.acqKey=null;}
 function trackDirs(p){const dirs=[[1,0],[0,1]];for(const e of ents()){if(!visible(e))continue;if(e.type==="wall"||e.type==="line"){if(dist(p,[e.x1,e.y1])<1||dist(p,[e.x2,e.y2])<1){const L=Math.hypot(e.x2-e.x1,e.y2-e.y1)||1,u=[(e.x2-e.x1)/L,(e.y2-e.y1)/L];if(Math.abs(u[0])>1e-3&&Math.abs(u[1])>1e-3)dirs.push(u,[-u[1],u[0]]);}}}return dirs;}
@@ -689,6 +697,7 @@ function moveSnap(mv,d){const tol=16/S.view.z;let best=null;
       return {d:[fc.pt[0]-fc.s.p[0],fc.pt[1]-fc.s.p[1]],snap:{k:"near",p:fc.pt}};}
     cancelAcq();
     if(al)return {d:[al.p[0]-srcP[0],al.p[1]-srcP[1]],snap:{k:"track",p:al.p,refs:al.refs}};
+    if(S.ortho){const oa=orthoAlign(mv,d);if(oa)return oa;}
     return {d,snap:null};}
   let nd=[best.t.p[0]-best.s.p[0],best.t.p[1]-best.s.p[1]];if(S.ortho){nd=Math.abs(d[0])>=Math.abs(d[1])?[nd[0],0]:[0,nd[1]];}
   return {d:nd,snap:{k:best.t.k,p:best.t.p}};}
