@@ -248,7 +248,7 @@ svg.i{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.7;stro
 <script>
 (function(){
   if(!window.FDBridge)return;
-  window.FD_NATIVE=true;window.FD_WEBVER=parseInt('19',10)||0;
+  window.FD_NATIVE=true;window.FD_WEBVER=parseInt('20',10)||0;
   var seq=0,pend={};
   window.__fdReply=function(id,ok,payload){var p=pend[id];if(!p)return;delete pend[id];ok?p.res(payload):p.rej(payload);};
   function call(op,args){return new Promise(function(res,rej){var id=++seq;pend[id]={res:res,rej:rej};args.id=id;args.op=op;FDBridge.postMessage(JSON.stringify(args));});}
@@ -586,7 +586,7 @@ function renderScene(c,w,h,view,o){ // o: {grid,bg,sel,lineScale}
   c.globalAlpha=1;
   // wall dimensions
   if(SET.dims&&layerOf("OLCU").on){c.font=(11*ls)+"px 'IBM Plex Mono', monospace";c.fillStyle=aci(layerOf("OLCU").color);c.textAlign="center";c.textBaseline="middle";
-    for(const e of walls){const L=wallLen(e);if(L*z<40)continue;const u=wallDir(e),n=[-u[1],u[0]];const mid=[(e.x1+e.x2)/2+n[0]*(e.thick/2+14/z),(e.y1+e.y2)/2+n[1]*(e.thick/2+14/z)];const q=T(mid);let a=Math.atan2(u[1],u[0])+vr;a=Math.atan2(Math.sin(a),Math.cos(a));if(a>Math.PI/2-1e-6)a-=Math.PI;if(a<-Math.PI/2-1e-6)a+=Math.PI;c.save();c.translate(q[0],q[1]);c.rotate(a);c.fillText(fmt(L),0,0);c.restore();}}
+    for(const e of walls){const L=wallLen(e);if(L*z<40)continue;const u=wallDir(e),n=[-u[1],u[0]];const mid=[(e.x1+e.x2)/2+n[0]*(e.thick/2+14/z),(e.y1+e.y2)/2+n[1]*(e.thick/2+14/z)];const q=T(mid);const ur=o.sel?uiRad():0;let a=Math.atan2(u[1],u[0])+vr-ur;a=Math.atan2(Math.sin(a),Math.cos(a));if(a>Math.PI/2-1e-6)a-=Math.PI;if(a<-Math.PI/2-1e-6)a+=Math.PI;a+=ur;c.save();c.translate(q[0],q[1]);c.rotate(a);c.fillText(fmt(L),0,0);c.restore();}}
   // selection
   if(o.sel){c.strokeStyle=cssv("--sel");c.lineWidth=2.5;c.setLineDash([6,4]);for(const id of S.sel){const e=byId(id);if(!e)continue;if(e.type==="wall"){const u=wallDir(e),n=[-u[1],u[0]],h=e.thick/2;tracePrim(c,{k:"p",pts:[[e.x1+n[0]*h,e.y1+n[1]*h],[e.x2+n[0]*h,e.y2+n[1]*h],[e.x2-n[0]*h,e.y2-n[1]*h],[e.x1-n[0]*h,e.y1-n[1]*h]],closed:true},T);c.stroke();}else for(const pr of prims(e)){tracePrim(c,pr,T);c.stroke();}}
     c.setLineDash([]);c.fillStyle=cssv("--sel");for(const id of S.sel){const e=byId(id);if(!e)continue;for(const p of grips(e)){const q=T(p);c.fillRect(q[0]-4,q[1]-4,8,8);}}}
@@ -612,7 +612,7 @@ function drawOverlay(){const c=g,z=S.view.z,T=w2s;Tz=z;const acc=cssv("--accent"
   if(S.draft&&S.draft.kind==="scribble"){c.strokeStyle=acc;c.lineWidth=3;c.globalAlpha=.8;tracePrim(c,{k:"p",pts:S.draft.pts},T);c.stroke();c.globalAlpha=1;}
   if(S.stairProp&&S.stairProp.ent){if(S.stairProp.raw){c.strokeStyle=cssv("--muted");c.globalAlpha=.35;c.lineWidth=2;c.setLineDash([3,4]);tracePrim(c,{k:"p",pts:S.stairProp.raw},T);c.stroke();c.setLineDash([]);}
     c.globalAlpha=1;c.strokeStyle=acc;c.lineWidth=1.8;prims(Object.assign({type:"stair"},S.stairProp.ent)).forEach(pr=>{tracePrim(c,pr,T);c.stroke();});
-    const st=w2s(S.stairProp.path[0]);c.fillStyle=acc;c.beginPath();c.arc(st[0],st[1],6,0,Math.PI*2);c.fill();c.font="600 12px 'IBM Plex Sans', sans-serif";c.fillText("Başlangıç",st[0]+10,st[1]-10);}
+    const st=w2s(S.stairProp.path[0]);c.fillStyle=acc;c.beginPath();c.arc(st[0],st[1],6,0,Math.PI*2);c.fill();c.font="600 12px 'IBM Plex Sans', sans-serif";c.save();c.translate(st[0],st[1]);c.rotate(uiRad());c.fillText("Başlangıç",10,-10);c.restore();}
   // door ghost
   if(S.tool==="door"&&S.hoverDoor){const d=S.hoverDoor;c.strokeStyle=d.wallId?acc:cssv("--muted");c.lineWidth=2;c.globalAlpha=.9;
     const u=[Math.cos(d.ang),Math.sin(d.ang)],n=[-u[1],u[0]],h=(d.thick||20)/2;c.fillStyle=cssv("--canvas");tracePrim(c,{k:"p",pts:[[d.x-u[0]*d.width/2+n[0]*h,d.y-u[1]*d.width/2+n[1]*h],[d.x+u[0]*d.width/2+n[0]*h,d.y+u[1]*d.width/2+n[1]*h],[d.x+u[0]*d.width/2-n[0]*h,d.y+u[1]*d.width/2-n[1]*h],[d.x-u[0]*d.width/2-n[0]*h,d.y-u[1]*d.width/2-n[1]*h]],closed:true},T);if(d.wallId)c.fill();c.stroke();
@@ -636,7 +636,8 @@ function drawOverlay(){const c=g,z=S.view.z,T=w2s;Tz=z;const acc=cssv("--accent"
     c.stroke();}
   if(cur&&S.tool!=="select"){const q=T(cur);c.strokeStyle=col;c.globalAlpha=.5;c.lineWidth=1;c.beginPath();c.moveTo(q[0]-14,q[1]);c.lineTo(q[0]+14,q[1]);c.moveTo(q[0],q[1]-14);c.lineTo(q[0],q[1]+14);c.stroke();c.globalAlpha=1;}
   c.restore();}
-function label(p,txt){const q=w2s(p);const c=g;c.font="600 12px 'IBM Plex Mono', monospace";const w=c.measureText(txt).width+12;c.fillStyle=cssv("--fg");c.globalAlpha=.9;c.beginPath();c.roundRect?c.roundRect(q[0]+14,q[1]+14,w,22,6):c.rect(q[0]+14,q[1]+14,w,22);c.fill();c.globalAlpha=1;c.fillStyle=cssv("--bg");c.textAlign="left";c.textBaseline="middle";c.fillText(txt,q[0]+20,q[1]+25);}
+function uiRad(){return (typeof UIR!=="undefined"&&UIR&&UIR.deg)?rad(UIR.deg):0;}
+function label(p,txt){const q=w2s(p);const c=g;c.save();c.translate(q[0],q[1]);c.rotate(uiRad());c.font="600 12px 'IBM Plex Mono', monospace";const w=c.measureText(txt).width+12;c.fillStyle=cssv("--fg");c.globalAlpha=.9;c.beginPath();c.roundRect?c.roundRect(14,14,w,22,6):c.rect(14,14,w,22);c.fill();c.globalAlpha=1;c.fillStyle=cssv("--bg");c.textAlign="left";c.textBaseline="middle";c.fillText(txt,20,25);c.restore();}
 function lenLabel(a,b){const L=dist(a,b);const ang=deg(Math.atan2(-(b[1]-a[1]),b[0]-a[0]));label(b,fmt(L)+" cm  ∠"+fmt((ang+360)%360)+"°");}
 
 /* ================= snapping ================= */
@@ -1521,20 +1522,26 @@ function fullHelp(){modal('<h2>Tam ekran bu görünümde açılmıyor</h2><p>Cla
 function scrAngle(){const a=(screen.orientation&&typeof screen.orientation.angle==="number")?screen.orientation.angle:(typeof window.orientation==="number"?window.orientation:0);return ((a%360)+360)%360;}
 let lastAng=scrAngle();
 function updUnrot(){const r=S.view.r||0;$("#btnUnrot").hidden=!(S.proj&&Math.abs(Math.sin(r/2))>1e-3);}
-function onOrient(){const a=scrAngle();let d=a-lastAng;lastAng=a;if(!d||!S.proj||!SET.lockRot)return;S.view.r=((S.view.r||0)-rad(d))%(2*Math.PI);updUnrot();setTimeout(draw,50);setTimeout(draw,350);}
+function onOrient(){const a=scrAngle();let d=a-lastAng;lastAng=a;if(d&&typeof UIR!=="undefined"&&UIR.follow){UIR.off=((UIR.off+UIR.deg)%360+360)%360;setUIRot(0,true);layoutUI();kbLock();}if(!d||!S.proj||!SET.lockRot)return;S.view.r=((S.view.r||0)-rad(d))%(2*Math.PI);updUnrot();setTimeout(draw,50);setTimeout(draw,350);}
 if(screen.orientation&&screen.orientation.addEventListener)screen.orientation.addEventListener("change",onOrient);else window.addEventListener("orientationchange",onOrient);
 $("#btnUnrot").onclick=()=>{S.view.r=0;updUnrot();draw();};
 /* ---- keep the canvas only while a project is open ---- */
 new MutationObserver(()=>{cv.hidden=$("#editor").hidden;if(!cv.hidden)draw();}).observe($("#editor"),{attributes:true,attributeFilter:["hidden"]});
 /* ---- app (screen locked): the plan never turns; only the menus follow the tablet ---- */
-const UIR={deg:0,base:null,q:null};
+var UIR={deg:0,base:null,q:null,off:0,follow:0};
 function layoutUI(){const ui=$("#ui"),W=window.innerWidth,H=window.innerHeight,side=Math.abs(UIR.deg)%180===90;const w=side?H:W,h=side?W:H;
   ui.style.width=w+"px";ui.style.height=h+"px";ui.style.left=((W-w)/2)+"px";ui.style.top=((H-h)/2)+"px";ui.style.transform=UIR.deg?"rotate("+UIR.deg+"deg)":"";}
-function setUIRot(deg){if(deg===UIR.deg)return;const ui=$("#ui");ui.classList.add("anim");UIR.deg=deg;layoutUI();clearTimeout(UIR.t);UIR.t=setTimeout(()=>ui.classList.remove("anim"),400);}
+function setUIRot(deg,quiet){if(deg===UIR.deg)return;const ui=$("#ui");if(!quiet)ui.classList.add("anim");UIR.deg=deg;layoutUI();clearTimeout(UIR.t);UIR.t=setTimeout(()=>ui.classList.remove("anim"),400);if(S.proj)draw();}
+/* typing while the menus are turned: the system keyboard only knows the screen, so the screen is let to
+   follow the tablet once (the plan is counter-rotated by onOrient) and then locked again in the new position */
+function kbFollow(){if(!window.FDOrient||!UIR.deg||UIR.follow)return;UIR.follow=Date.now();FDOrient.postMessage("follow");
+  clearTimeout(UIR.ft);UIR.ft=setTimeout(kbLock,1800);}
+function kbLock(){if(!UIR.follow)return;clearTimeout(UIR.ft);try{FDOrient.postMessage("lock");}catch(e){}setTimeout(()=>{UIR.follow=0;},600);}
+document.addEventListener("focusin",e=>{const t=e.target;if(t&&(t.tagName==="TEXTAREA"||(t.tagName==="INPUT"&&!/^(checkbox|radio|range|button|submit|file|color)$/.test(t.type))))kbFollow();});
 if(window.FD_NATIVE&&window.FDLocked){
   window.addEventListener("devicemotion",e=>{const g=e.accelerationIncludingGravity;if(!g||g.x==null)return;const gx=g.x,gy=g.y;if(Math.hypot(gx,gy)<4)return;// lying flat: keep as is
     const a=Math.atan2(gx,gy)*180/Math.PI;let q=Math.round(a/90)*90;if(Math.abs(a-q)>30)return;q=((q%360)+360)%360;// dead zone between quadrants
-    if(UIR.base==null)UIR.base=q;if(!SET.lockRot){setUIRot(0);return;}let d=((q-UIR.base)%360+360)%360;if(d===270)d=-90;setUIRot(d);});
+    if(UIR.base==null)UIR.base=q;if(UIR.follow)return;if(!SET.lockRot){setUIRot(0);return;}let d=((q-UIR.base-UIR.off)%720+720)%360;if(d===270)d=-90;setUIRot(d);});
   window.addEventListener("resize",layoutUI);}
 /* ================= boot ================= */
 applyTheme();renderHome();
