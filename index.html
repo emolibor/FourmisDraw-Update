@@ -248,7 +248,7 @@ svg.i{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.7;stro
 <script>
 (function(){
   if(!window.FDBridge)return;
-  window.FD_NATIVE=true;window.FD_WEBVER=parseInt('17',10)||0;
+  window.FD_NATIVE=true;window.FD_WEBVER=parseInt('18',10)||0;
   var seq=0,pend={};
   window.__fdReply=function(id,ok,payload){var p=pend[id];if(!p)return;delete pend[id];ok?p.res(payload):p.rej(payload);};
   function call(op,args){return new Promise(function(res,rej){var id=++seq;pend[id]={res:res,rej:rej};args.id=id;args.op=op;FDBridge.postMessage(JSON.stringify(args));});}
@@ -1297,7 +1297,10 @@ function rasterize(scale,white){const b=extents(ents());const pad=80;const wcm=b
 async function doExport(f,dim,white){const nm=safeName();
   if(f==="png"||f==="jpg"){const c=rasterize(2,white);const blob=await new Promise(r=>c.toBlob(r,f==="png"?"image/png":"image/jpeg",0.92));await saveFile(nm+"."+(f==="png"?"png":"jpg"),blob);return;}
   if(f==="pdf"){await loadScript("lib/jspdf.umd.min.js");const c=rasterize(2,white);const land=c.width>=c.height;const pdf=new window.jspdf.jsPDF({orientation:land?"landscape":"portrait",unit:"mm",format:"a3"});const pw=pdf.internal.pageSize.getWidth(),ph=pdf.internal.pageSize.getHeight(),m=12;const r=Math.min((pw-2*m)/c.width,(ph-2*m-10)/c.height);
-    pdf.addImage(c.toDataURL("image/jpeg",0.92),"JPEG",(pw-c.width*r)/2,m,c.width*r,c.height*r);pdf.setFontSize(9);pdf.text((S.proj.name||"")+"  ·  FourmisDraw  ·  "+new Date().toLocaleDateString("tr-TR"),m,ph-m+4);await saveFile(nm+".pdf",pdf.output("blob"));return;}
+    pdf.addImage(c.toDataURL("image/jpeg",0.92),"JPEG",(pw-c.width*r)/2,m+Math.max(0,(ph-2*m-10-c.height*r)/2),c.width*r,c.height*r);
+    // footer drawn as an image: the built-in PDF fonts have no Turkish letters (ş, ğ, ı, İ)
+    const ft=(S.proj.name||"")+"  ·  FourmisDraw  ·  "+new Date().toLocaleDateString("tr-TR"),fc=document.createElement("canvas"),fx=fc.getContext("2d"),fpx=48,ffont=fpx+"px 'IBM Plex Sans', Arial, sans-serif";fx.font=ffont;fc.width=Math.ceil(fx.measureText(ft).width)+8;fc.height=Math.ceil(fpx*1.35);fx.font=ffont;fx.fillStyle="#1d2433";fx.textBaseline="alphabetic";fx.fillText(ft,2,fpx);
+    const fh=4.4;pdf.addImage(fc.toDataURL("image/png"),"PNG",m,ph-m+4-fh*0.74,fc.width/fc.height*fh,fh);await saveFile(nm+".pdf",pdf.output("blob"));return;}
   if(f==="dxf"){const outl=await wallUnion(dim==="3d");const txt=buildDXF(dim==="3d",outl);await saveFile(nm+".dxf",new Blob([txt],{type:"application/dxf"}));}}
 
 /* ---------- DXF writer (R12, cm) ---------- */
