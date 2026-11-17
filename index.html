@@ -248,7 +248,7 @@ svg.i{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.7;stro
 <script>
 (function(){
   if(!window.FDBridge)return;
-  window.FD_NATIVE=true;window.FD_WEBVER=parseInt('26',10)||0;
+  window.FD_NATIVE=true;window.FD_WEBVER=parseInt('27',10)||0;
   var seq=0,pend={};
   window.__fdReply=function(id,ok,payload){var p=pend[id];if(!p)return;delete pend[id];ok?p.res(payload):p.rej(payload);};
   function call(op,args){return new Promise(function(res,rej){var id=++seq;pend[id]={res:res,rej:rej};args.id=id;args.op=op;FDBridge.postMessage(JSON.stringify(args));});}
@@ -578,7 +578,21 @@ function offsetGhost(e,p){const d=+S.opt.offset.dist||0;if(!(d>0))return null;co
 function polyArea(p){let a=0;for(let i=0;i<p.length;i++){const q=p[i],r=p[(i+1)%p.length];a+=q[0]*r[1]-r[0]*q[1];}return a/2;}
 function pointInPoly(pt,poly){let c=false;for(let i=0,j=poly.length-1;i<poly.length;j=i++){const a=poly[i],b=poly[j];if(((a[1]>pt[1])!==(b[1]>pt[1]))&&(pt[0]<(b[0]-a[0])*(pt[1]-a[1])/(b[1]-a[1])+a[0]))c=!c;}return c;}
 function colPts(e){const w=(+e.w||60)/2,d=(+e.d||90)/2,a=-rad(e.ang||0);return [[-w,-d],[w,-d],[w,d],[-w,d]].map(p=>{const r=rot(p,a);return [e.x+r[0],e.y+r[1]];});}
-function colGhost(p){const o=S.opt.column;return {type:"column",shape:o.shape,x:p[0],y:p[1],w:+o.w||60,d:+o.d||90,ang:+o.ang||0,height:o.height,op:1,layer:"KOLON"};}
+/* ---------- columns sit flush against walls ---------- */
+function rayPolys(o,d,max,polys){let best=null;const q=[o[0]+d[0],o[1]+d[1]];for(const poly of polys)for(let i=0;i<poly.length;i++){const a=poly[i],b=poly[(i+1)%poly.length],t=segInter(o,q,a,b);if(t!=null&&t>1e-9&&t<=max&&(!best||t<best.t))best={t,a,b};}return best;}
+// If a face of the column runs parallel to a wall face with a small gap in between, returns the shift that closes the gap.
+function colFlush(col,tol,skip){if(col.shape==="round")return [0,0];const polys=[];for(const w of ents()){if((w.type!=="wall"&&w.type!=="awall")||!visible(w)||(skip&&skip.has(w.id)))continue;for(const b of wallBody(w))polys.push(b);}
+  if(!polys.length)return [0,0];const P=colPts(col),inWall=q=>polys.some(b=>pointInPoly(q,b)),best=[null,null];
+  for(let i=0;i<4;i++){const a=P[i],b=P[(i+1)%4],L=dist(a,b)||1,g=[(b[0]-a[0])/L,(b[1]-a[1])/L],mid=lerp(a,b,.5);let n=[g[1],-g[0]];if((mid[0]-col.x)*n[0]+(mid[1]-col.y)*n[1]<0)n=[-n[0],-n[1]];
+    let t=null;for(const f of [0.15,0.5,0.85]){const q=lerp(a,b,f);if(inWall(q))continue;const h=rayPolys(q,n,tol,polys);if(!h)continue;const Lf=dist(h.a,h.b)||1;if(Math.abs((h.b[0]-h.a[0])/Lf*n[0]+(h.b[1]-h.a[1])/Lf*n[1])>0.02)continue;if(h.t>0.005&&(t==null||h.t<t))t=h.t;}
+    if(t!=null&&(!best[i%2]||t<best[i%2].t))best[i%2]={t,n};}
+  const d=[0,0];for(const k of best)if(k){d[0]+=k.n[0]*k.t;d[1]+=k.n[1]*k.t;}return d;}
+function flushTol(){return clamp(14/S.view.z,3,25);}
+function flushAllColumns(){let n=0;const cols=ents().filter(c=>c.type==="column"&&c.shape!=="round"&&editable(c));const before=JSON.stringify(ents());
+  for(let pass=0;pass<2;pass++)for(const c of cols){const d=colFlush(c,6);if(Math.hypot(d[0],d[1])>0.005){c.x+=d[0];c.y+=d[1];if(!pass||!c._fl)n++;c._fl=1;}}
+  cols.forEach(c=>delete c._fl);if(!n){toast("Duvara 6 cm'den yakın durup değmeyen kolon bulamadım");return;}
+  const now=JSON.stringify(ents());S.proj.ents=JSON.parse(before);pushUndo();S.proj.ents=JSON.parse(now);markDirty();refreshPanels();draw();toast(n+" kolon duvara yaslandı");}
+function colGhost(p){const o=S.opt.column;const gc={type:"column",shape:o.shape,x:p[0],y:p[1],w:+o.w||60,d:+o.d||90,ang:+o.ang||0,height:o.height,op:1,layer:"KOLON"};const fd=colFlush(gc,flushTol());gc.x+=fd[0];gc.y+=fd[1];return gc;}
 function colLayer(){const L=S.proj.layers;if(!L.some(l=>l.name==="KOLON"))L.splice(Math.min(2,L.length),0,{name:"KOLON",color:30,on:true,lock:false});const c=S.proj.cur;return ["0","DUVAR","KAPI","MERDIVEN","CIZIM","OLCU","ALTLIK"].includes(c)?"KOLON":c;}
 function rememberDoor(kind,w){S.opt.door.widths[kind]=w;if(S.opt.door.kind===kind)S.opt.door.width=w;SET.doorW=Object.assign({},S.opt.door.widths);saveSet();}
 function grpSet(id){const e=byId(id);if(!e||!e.grp)return new Set([id]);return new Set(ents().filter(x=>x.grp===e.grp&&editable(x)).map(x=>x.id));}
@@ -1203,7 +1217,7 @@ function renderCtx(){const C=$("#ctx");let h="";
     else if(S.stairProp)h+='<span class="readout">Algılanan: '+S.stairProp.label+'</span><span class="hint">Ok çıkış yönünü gösteriyor; kırmızı noktadan başlayıp okun ucuna çıkılır. Doğru mu?</span><button class="sbtn" id="spRev" type="button">Yönü ters çevir</button><button class="sbtn" id="spRedo" type="button">'+(sk?"Çizime dön":"Yeniden karala")+'</button><button class="sbtn go" id="spOk" type="button">Onayla</button>';
     else if(sk){const n=S.sketch.strokes.length;h+='<span class="hint">Dış hattı ve basamak çizgilerini istediğin sırayla çiz; kalemi kaldırınca bitmez. Çıkışın başladığı uçtan başlarsan yönü doğru tahmin ederim.</span><span class="readout">'+n+' çizgi</span><button class="sbtn" id="skUndo" type="button"'+(n?"":" disabled")+'>Son çizgiyi sil</button><button class="sbtn" id="skClear" type="button"'+(n?"":" disabled")+'>Temizle</button><button class="sbtn go" id="skConv" type="button"'+(n?"":" disabled")+'>Dönüştür</button>';}
     else h+='<span class="hint">Merdiveni kalemle karala: çıkışın başladığı yerden üst kata vardığı yere doğru, kolların üzerinden tek çizgiyle git. İstersen dış hattını da çizebilirsin.</span>';}
-  else if(S.tool==="column"){const o=S.opt.column;h='<span class="t">Kolon</span><div class="seg" id="cShape"><button type="button" data-k="rect" aria-pressed="'+(o.shape==="rect")+'">Dikdörtgen</button><button type="button" data-k="round" aria-pressed="'+(o.shape==="round")+'">Yuvarlak</button></div>'+(o.shape==="rect"?fld("cW","Genişlik",o.w,"cm")+fld("cD","Derinlik",o.d,"cm")+fld("cA","Açı",o.ang,"°"):fld("cW","Çap",o.w,"cm"))+fld("cH","Yükseklik",o.height,"cm","isteğe bağlı")+'<span class="hint">Yerleştirmek istediğin noktaya dokun; merkezinden yerleşir</span>';}
+  else if(S.tool==="column"){const o=S.opt.column;h='<span class="t">Kolon</span><div class="seg" id="cShape"><button type="button" data-k="rect" aria-pressed="'+(o.shape==="rect")+'">Dikdörtgen</button><button type="button" data-k="round" aria-pressed="'+(o.shape==="round")+'">Yuvarlak</button></div>'+(o.shape==="rect"?fld("cW","Genişlik",o.w,"cm")+fld("cD","Derinlik",o.d,"cm")+fld("cA","Açı",o.ang,"°"):fld("cW","Çap",o.w,"cm"))+fld("cH","Yükseklik",o.height,"cm","isteğe bağlı")+'<span class="hint">Dokunduğun yere yerleşir; duvara yakınsa yüzüne yaslanır</span><button class="sbtn" id="cFlush" type="button">Kolonları duvara yasla</button>';}
   else if(S.tool==="line"||S.tool==="pline"){h='<span class="t">'+(S.tool==="line"?"Çizgi":"Polyline")+'</span>'+fld("oLen","Uzunluk","","cm")+'<button class="sbtn" id="oEnd" type="button">Bitir</button>'+(S.tool==="pline"?'<button class="sbtn" id="oClose" type="button">Kapat</button>':"");}
   else if(S.tool==="mline"){const o=S.opt.mline;h='<span class="t">Çoklu çizgi</span>'+fld("mW","Aralık",o.width,"cm")+fld("oLen","Uzunluk","","cm")+'<label class="fld"><input type="checkbox" id="mCaps"'+(o.caps?" checked":"")+' style="width:20px;height:20px;accent-color:var(--accent)">Uçları kapat</label><button class="sbtn" id="oEnd" type="button">Bitir</button><button class="sbtn" id="oClose" type="button">Kapat</button>';}
   else if(S.tool==="offset"){const o=S.opt.offset;h='<span class="t">Ötele</span>'+fld("ofD","Mesafe",o.dist,"cm")+'<span class="hint">'+(S.offEnt?"Hangi tarafa ötelenecek? O tarafa dokun":"Ötelenecek çizgi, duvar, daire ya da polyline'a dokun")+'</span>';}
@@ -1222,6 +1236,7 @@ function bindCtx(){const on=(id,ev,fn)=>{const el=document.getElementById(id);if
   if(S.tool==="door"){on("oW","input",e=>{const v=e.target.value===""?"":+e.target.value;S.opt.door.width=v;if(v>0)rememberDoor(S.opt.door.kind,v);draw();});numOpt("oH",S.opt.door,"height");}
   numOpt("tH",S.opt.text,"h");numOpt("tA",S.opt.text,"ang");
   numOpt("cW",S.opt.column,"w");numOpt("cD",S.opt.column,"d");numOpt("cA",S.opt.column,"ang");if(S.tool==="column")numOpt("cH",S.opt.column,"height");
+  on("cFlush","click",()=>flushAllColumns());
   on("cShape","click",e=>{const b=e.target.closest("button");if(!b)return;S.opt.column.shape=b.dataset.k;renderCtx();draw();});
   numOpt("sW",S.opt.stair,"width");numOpt("sN",S.opt.stair,"n");on("sDep","click",e=>{const b=e.target.closest("button");if(!b)return;S.opt.stair.depth=+b.dataset.k;renderCtx();draw();});numOpt("sL",S.opt.stair,"landing");numOpt("sH",S.opt.stair,"height");
   on("oKind","click",e=>{const b=e.target.closest("button");if(!b)return;if(S.tool==="door"){S.opt.door.kind=b.dataset.k;S.opt.door.width=S.opt.door.widths[b.dataset.k]||90;}else{S.opt.stair.kind=b.dataset.k;S.draft=null;S.stairProp=null;S.sketch.strokes=[];}renderCtx();draw();});
@@ -1332,7 +1347,7 @@ function toolUp(raw,e){const p=S.cur;const moved=downInfo&&downInfo.moved;
     if(S.cmd.name==="scale"&&!moved){S.cmd.ref=null;return;}
     const M=cmdMatrix(S.cmd,p);if(!M)return;placeCmd(M);return;}
   if(S.tool==="select"){if(S.drag&&!S.drag.moved&&!S.drag.shift){const a=byId(S.drag.hit);const fd=a&&a.type==="antet"&&antFieldAt(a,raw);if(fd){S.drag=null;trackReset();antetFieldModal(a,fd);return;}}
-    if(S.drag){trackReset();if(S.drag.moved){const now=JSON.stringify(ents());S.proj.ents=JSON.parse(S.drag.snap);pushUndo();S.proj.ents=JSON.parse(now);for(const id of S.sel){const d=byId(id);if(d&&d.type==="door")reattachDoor(d);}markDirty();refreshPanels();}S.drag=null;return;}
+    if(S.drag){trackReset();if(S.drag.moved){const mvd=[...S.sel].map(byId).filter(Boolean);if(mvd.length&&mvd.every(x=>x.type==="column"))for(const cc of mvd){const fd=colFlush(cc,flushTol());cc.x+=fd[0];cc.y+=fd[1];}const now=JSON.stringify(ents());S.proj.ents=JSON.parse(S.drag.snap);pushUndo();S.proj.ents=JSON.parse(now);for(const id of S.sel){const d=byId(id);if(d&&d.type==="door")reattachDoor(d);}markDirty();refreshPanels();}S.drag=null;return;}
     if(S.box){const a=S.box.a,b=S.box.b;S.box=null;if(dist(a,b)*S.view.z<6)return;const x0=Math.min(a[0],b[0]),x1=Math.max(a[0],b[0]),y0=Math.min(a[1],b[1]),y1=Math.max(a[1],b[1]);
       for(const en of ents()){if(!editable(en))continue;const bb=bbox(en);if(bb[0]>=x0&&bb[2]<=x1&&bb[1]>=y0&&bb[3]<=y1)grpSet(en.id).forEach(id=>S.sel.add(id));}refreshPanels();}return;}
   if(S.tool==="offset"){if(!S.offEnt){const hit=hitTest(raw,e.pointerType==="touch"?22:10);if(hit&&offsetGhost(hit,raw)){S.offEnt=hit.id;S.sel=new Set([hit.id]);}else if(hit)toast("Bu eleman ötelenemiyor");renderCtx();return;}
@@ -1476,7 +1491,7 @@ async function doExport(f,dim,white){const nm=safeName();
 function asciiName(n){return n.replace(/Ç/g,"C").replace(/Ğ/g,"G").replace(/İ/g,"I").replace(/Ö/g,"O").replace(/Ş/g,"S").replace(/Ü/g,"U").replace(/[^A-Z0-9_\- ]/gi,"_");}
 async function wallUnion(threeD){const walls=ents().filter(e=>(e.type==="wall"||e.type==="awall")&&visible(e));if(!walls.length)return [];
   try{await loadScript("lib/polygon-clipping.umd.min.js");}catch(e){return null;}
-  const pc=window.polygonClipping;if(!pc)return null;const rd=v=>Math.round(v*100)/100;const groups=new Map();
+  const pc=window.polygonClipping;if(!pc)return null;const rd=v=>Math.round(v*1e6)/1e6;const groups=new Map();
   for(const w of walls){const h=threeD?(+w.height||280):0;const key=w.layer+"|"+h;if(!groups.has(key))groups.set(key,{layer:w.layer,h,polys:[]});
     for(const r of wallBody(w)){const ring=r.map(p=>[rd(p[0]),rd(p[1])]);ring.push(ring[0].slice());groups.get(key).polys.push([ring]);}}
   const cols=[];for(const c of ents()){if(c.type!=="column"||!visible(c))continue;let ring;if(c.shape==="round"){const R=(+c.w||60)/2,n=Math.max(24,Math.ceil(Math.PI*2/arcStep(R)));ring=[];for(let i=0;i<n;i++){const t=Math.PI*2*i/n;ring.push([rd(c.x+R*Math.cos(t)),rd(c.y+R*Math.sin(t))]);}}else ring=colPts(c).map(p=>[rd(p[0]),rd(p[1])]);ring.push(ring[0].slice());cols.push([ring]);}
@@ -1498,7 +1513,7 @@ function trOf(l){return l.tr!=null?l.tr:(DEFAULT_TR[l.name]!=null?DEFAULT_TR[l.n
 const DEFAULT_LW={KOLON:50,DUVAR:35,MERDIVEN:25,KAPI:25,CIZIM:13,YAZI:13,OLCU:13};
 function lwOf(l){return l.lw!=null?l.lw:(DEFAULT_LW[l.name]!=null?DEFAULT_LW[l.name]:-3);}
 const lwTxt=v=>v<0?"Varsayılan":(v/100).toFixed(2);
-function buildDXF(threeD,outl){const o=[];const P=(c,v)=>{o.push(String(c));o.push(String(v));};const N=v=>(Math.round(v*1000)/1000).toString();
+function buildDXF(threeD,outl){const o=[];const P=(c,v)=>{o.push(String(c));o.push(String(v));};const N=v=>(Math.round(v*1e6)/1e6).toString();
   let H=0x100;const hd=()=>(H++).toString(16).toUpperCase();const MS="17";
   const head=(type,lay,lt)=>{P(0,type);P(5,hd());P(330,MS);P(100,"AcDbEntity");P(8,lay);if(lt)P(6,lt);};
   const LINE=(lay,a,b,z0,th,lt)=>{head("LINE",lay,lt);P(100,"AcDbLine");if(th)P(39,N(th));P(10,N(a[0]));P(20,N(-a[1]));P(30,N(z0||0));P(11,N(b[0]));P(21,N(-b[1]));P(31,N(z0||0));};
