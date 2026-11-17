@@ -248,7 +248,7 @@ svg.i{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.7;stro
 <script>
 (function(){
   if(!window.FDBridge)return;
-  window.FD_NATIVE=true;window.FD_WEBVER=parseInt('24',10)||0;
+  window.FD_NATIVE=true;window.FD_WEBVER=parseInt('25',10)||0;
   var seq=0,pend={};
   window.__fdReply=function(id,ok,payload){var p=pend[id];if(!p)return;delete pend[id];ok?p.res(payload):p.rej(payload);};
   function call(op,args){return new Promise(function(res,rej){var id=++seq;pend[id]={res:res,rej:rej};args.id=id;args.op=op;FDBridge.postMessage(JSON.stringify(args));});}
@@ -484,16 +484,16 @@ function xf(e,pts){const c=Math.cos(e.ang||0),s=Math.sin(e.ang||0);return pts.ma
 function doorLocal(d){const w=d.width,t=d.thick||20,s=d.flip||1,h=d.hand||1,P=[];const face=s*t/2;
   const LEAF=5;// door leaf drawn as a 5 cm thick panel, thickness taken into the opening
   const leaf=(x,inw,len)=>({k:"p",pts:[[x,face],[x+inw*LEAF,face],[x+inw*LEAF,face+s*len],[x,face+s*len]],closed:true});
-  if(d.kind==="single"){const hx=-h*w/2;P.push(leaf(hx,h,w));
-    P.push({k:"p",pts:swingArc([hx,face],w,[hx,face+s*w],[-hx,face])});}
-  else if(d.kind==="double"){const q=w/2;P.push(leaf(-q,1,q),leaf(q,-1,q));
-    P.push({k:"p",pts:swingArc([-q,face],q,[-q,face+s*q],[0,face])},{k:"p",pts:swingArc([q,face],q,[q,face+s*q],[0,face])});}
+  // swing arc: from the leaf's tip corner on the opening side to the far jamb (centre on the wall face, a hair behind the hinge)
+  const swing=(hx,dir,len)=>{const c=len>LEAF+1?-LEAF*LEAF/(2*(len-LEAF)):0;return {k:"p",arc:true,pts:swingArc([hx+dir*c,face],len-c,[hx+dir*LEAF,face+s*len],[hx+dir*len,face],32)};};
+  if(d.kind==="single"){const hx=-h*w/2;P.push(leaf(hx,h,w));P.push(swing(hx,h,w));}
+  else if(d.kind==="double"){const q=w/2;P.push(leaf(-q,1,q),leaf(q,-1,q));P.push(swing(-q,1,q),swing(q,-1,q));}
   else if(d.kind==="sliding"){const o=t/6,hl=LEAF/2;P.push({k:"p",pts:[[-w/2,-o-hl],[w*0.1,-o-hl],[w*0.1,-o+hl],[-w/2,-o+hl]],closed:true},{k:"p",pts:[[-w*0.1,o-hl],[w/2,o-hl],[w/2,o+hl],[-w*0.1,o+hl]],closed:true});}
   else if(d.kind==="opening"){// bare opening: only cuts the wall; the outline is a screen-only hint for picking it
     P.push({k:"p",pts:[[-w/2,-t/2],[w/2,-t/2],[w/2,t/2],[-w/2,t/2]],closed:true,ghost:true});}
   else if(d.kind==="industrial"){const f2=face+s*12;P.push({k:"p",pts:[[-w/2,face],[w/2,face],[w/2,f2],[-w/2,f2]],closed:true});P.push({k:"l",a:[-w/2,face],b:[w/2,f2]});P.push({k:"l",a:[w/2,face],b:[-w/2,f2]});}
   return P;}
-function swingArc(c,r,from,to){const a0=Math.atan2(from[1]-c[1],from[0]-c[0]);let a1=Math.atan2(to[1]-c[1],to[0]-c[0]);let d=a1-a0;while(d>Math.PI)d-=2*Math.PI;while(d<-Math.PI)d+=2*Math.PI;return arcPts(c,r,a0,a0+d,12);}
+function swingArc(c,r,from,to,n){const a0=Math.atan2(from[1]-c[1],from[0]-c[0]);let a1=Math.atan2(to[1]-c[1],to[0]-c[0]);let d=a1-a0;while(d>Math.PI)d-=2*Math.PI;while(d<-Math.PI)d+=2*Math.PI;return arcPts(c,r,a0,a0+d,n||12);}
 function stairLocal(e){const W=+e.width||100,n=Math.max(2,Math.round(+e.n||16)),gd=+e.depth||28,Lg=+e.landing||W,m=e.m||1,P=[];const R=(pts,closed)=>P.push({k:"p",pts:pts.map(p=>[p[0],p[1]*m]),closed});const Ln=(a,b)=>P.push({k:"l",a:[a[0],a[1]*m],b:[b[0],b[1]*m]});
   const arrow=(pts)=>{R(pts,false);const a=pts[pts.length-2],b=pts[pts.length-1];const ang=Math.atan2(b[1]-a[1],b[0]-a[0]),s=14;R([[b[0]-s*Math.cos(ang-0.45),b[1]-s*Math.sin(ang-0.45)],b,[b[0]-s*Math.cos(ang+0.45),b[1]-s*Math.sin(ang+0.45)]],false);};
   if(e.kind==="straight"){const Lx=n*gd;R([[0,0],[Lx,0],[Lx,W],[0,W]],true);for(let i=1;i<n;i++)Ln([i*gd,0],[i*gd,W]);arrow([[gd/2,W/2],[Lx-gd/2,W/2]]);}
@@ -597,7 +597,7 @@ function prims(e){
    case "pline":case "rect":return [{k:"p",pts:e.pts,closed:!!e.closed}];
    case "mline":return mlinePrims(e);
    case "circle":return [{k:"c",c:[e.cx,e.cy],r:e.r}];
-   case "door":return doorLocal(e).map(p=>p.k==="l"?{k:"l",a:xf(e,[p.a])[0],b:xf(e,[p.b])[0]}:{k:"p",pts:xf(e,p.pts),closed:p.closed,ghost:p.ghost});
+   case "door":return doorLocal(e).map(p=>p.k==="l"?{k:"l",a:xf(e,[p.a])[0],b:xf(e,[p.b])[0]}:{k:"p",pts:xf(e,p.pts),closed:p.closed,ghost:p.ghost,arc:p.arc});
    case "stair":if(e.kind==="custom")return customStairPrims(e);if(e.kind==="sketch")return sketchPrims(e);return stairLocal(e).map(p=>p.k==="l"?{k:"l",a:xf(e,[p.a])[0],b:xf(e,[p.b])[0]}:{k:"p",pts:xf(e,p.pts),closed:p.closed});
    case "wall":{const out=[];for(const r of wallPolys(e))out.push({k:"p",pts:r,closed:true});return out;}
    case "column":return e.shape==="round"?[{k:"c",c:[e.x,e.y],r:(+e.w||60)/2}]:[{k:"p",pts:colPts(e),closed:true}];
@@ -1458,7 +1458,7 @@ function buildDXF(threeD,outl){const o=[];const P=(c,v)=>{o.push(String(c));o.pu
   const LINE=(lay,a,b,z0,th)=>{head("LINE",lay);P(100,"AcDbLine");if(th)P(39,N(th));P(10,N(a[0]));P(20,N(-a[1]));P(30,N(z0||0));P(11,N(b[0]));P(21,N(-b[1]));P(31,N(z0||0));};
   const PL=(lay,pts,closed,z0,th)=>{head("LWPOLYLINE",lay);P(100,"AcDbPolyline");P(90,pts.length);P(70,closed?1:0);if(z0)P(38,N(z0));if(th)P(39,N(th));for(const p of pts){P(10,N(p[0]));P(20,N(-p[1]));}};
   const PLB=(lay,vs,closed,z0,th)=>{head("LWPOLYLINE",lay);P(100,"AcDbPolyline");P(90,vs.length);P(70,closed?1:0);if(z0)P(38,N(z0));if(th)P(39,N(th));for(const v of vs){P(10,N(v.p[0]));P(20,N(-v.p[1]));if(Math.abs(v.b)>1e-9)P(42,(Math.round(v.b*1e8)/1e8).toString());}};
-  const ARC=(lay,G)=>{head("ARC",lay);P(100,"AcDbCircle");P(10,N(G.c[0]));P(20,N(-G.c[1]));P(30,0);P(40,N(G.r));P(100,"AcDbArc");const nd=v=>((v%360)+360)%360,a0=-deg(G.t0),sw=-deg(G.sw);P(50,N(nd(sw>0?a0:a0+sw)));P(51,N(nd(sw>0?a0+sw:a0)));};
+  const ARC=(lay,G,th)=>{head("ARC",lay);P(100,"AcDbCircle");if(th)P(39,N(th));P(10,N(G.c[0]));P(20,N(-G.c[1]));P(30,0);P(40,N(G.r));P(100,"AcDbArc");const nd=v=>((v%360)+360)%360,a0=-deg(G.t0),sw=-deg(G.sw);P(50,N(nd(sw>0?a0:a0+sw)));P(51,N(nd(sw>0?a0+sw:a0)));};
   const circ=awallCircles(ents().filter(visible));
   // walls stop at columns: the pieces of a wall outline that coincide with a column's outline are not written
   const colB=[];for(const c of ents()){if(c.type!=="column"||!visible(c))continue;if(c.shape==="round")colB.push({c:[c.x,c.y],R:(+c.w||60)/2});else colB.push({pts:colPts(c)});}
@@ -1490,7 +1490,7 @@ function buildDXF(threeD,outl){const o=[];const P=(c,v)=>{o.push(String(c));o.pu
     if(e.type==="circle"){CIRC(lay,[e.cx,e.cy],e.r,0);continue;}
     if(e.type==="stair"&&threeD){const n=e.kind==="custom"?Math.max(2,Math.round(pathLen(e.pts)/(+e.depth||28))):Math.max(2,+e.n||16);const Ht=+e.height||n*17.5;const rz=Ht/(n+0);let i=0;for(const pr of prims(e)){if(pr.k==="l"){i++;LINE(lay,pr.a,pr.b,Math.min(i,n)*rz,0);}else if(pr.k==="c")CIRC(lay,pr.c,pr.r,0);else PL(lay,pr.pts,pr.closed,0,0);}continue;}
     const th=threeD&&e.type==="door"?(+e.height||210):0;
-    for(const pr of prims(e)){if(pr.ghost)continue;if(pr.k==="l")LINE(lay,pr.a,pr.b,0,th);else if(pr.k==="p")PL(lay,pr.pts,pr.closed,0,th);else if(pr.k==="c")CIRC(lay,pr.c,pr.r,th);}}
+    for(const pr of prims(e)){if(pr.ghost)continue;if(pr.k==="l")LINE(lay,pr.a,pr.b,0,th);else if(pr.k==="p"){const G=pr.arc?arcGeom({a:pr.pts[0],b:pr.pts[pr.pts.length-1],m:pr.pts[pr.pts.length>>1]}):null;if(G)ARC(lay,G,th);else PL(lay,pr.pts,pr.closed,0,th);}else if(pr.k==="c")CIRC(lay,pr.c,pr.r,th);}}
   if(outl)for(const g of outl)for(const poly of g.mp)for(const ring of poly){const r=cleanRing(ring);if(r.length>2)WALLRING(asciiName(g.layer),arcifyRing(r,circ,onCol),0,g.h);}
   const entTxt=o.join("\n");o.length=0;
   // layer table with lineweights (370, 1/100 mm); every layer an entity uses is listed
