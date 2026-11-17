@@ -248,7 +248,7 @@ svg.i{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.7;stro
 <script>
 (function(){
   if(!window.FDBridge)return;
-  window.FD_NATIVE=true;window.FD_WEBVER=parseInt('23',10)||0;
+  window.FD_NATIVE=true;window.FD_WEBVER=parseInt('24',10)||0;
   var seq=0,pend={};
   window.__fdReply=function(id,ok,payload){var p=pend[id];if(!p)return;delete pend[id];ok?p.res(payload):p.rej(payload);};
   function call(op,args){return new Promise(function(res,rej){var id=++seq;pend[id]={res:res,rej:rej};args.id=id;args.op=op;FDBridge.postMessage(JSON.stringify(args));});}
@@ -427,24 +427,44 @@ function arcLinePts(e){const G=arcGeom(e);return G?arcPtsAt(G,G.r):[e.a,e.b];}
 // curved wall body: outer arc then inner arc back; ends run into the walls they touch, like straight walls
 function awallPoly(e){const h=(+e.thick||20)/2,G=arcGeom(e);
   if(!G||G.r<=h+0.5){const L=dist(e.a,e.b)||1,n=[-(e.b[1]-e.a[1])/L*h,(e.b[0]-e.a[0])/L*h];return [[e.a[0]+n[0],e.a[1]+n[1]],[e.b[0]+n[0],e.b[1]+n[1]],[e.b[0]-n[0],e.b[1]-n[1]],[e.a[0]-n[0],e.a[1]-n[1]]];}
-  const x0=endExt(e,e.a)/G.r,x1=endExt(e,e.b)/G.r;return arcPtsAt(G,G.r+h,x0,x1).concat(arcPtsAt(G,G.r-h,x0,x1).reverse());}
-function wallBody(e){return e.type==="awall"?[awallPoly(e)]:wallPolys(e);}
+  // where an end butts into the side of another wall it runs on straight (along the tangent) by that wall's half thickness
+  const E=awallEnds(e),x0=E.x0,x1=E.x1,sg=Math.sign(G.sw)||1,t1=G.t0+G.sw,B=[sg*Math.sin(G.t0),-sg*Math.cos(G.t0)],Fw=[-sg*Math.sin(t1),sg*Math.cos(t1)];
+  const O=arcPtsAt(G,G.r+h),I=arcPtsAt(G,G.r-h).reverse(),ex=(p,d,x)=>[p[0]+d[0]*x,p[1]+d[1]*x];
+  let P=O;if(x1>0)P=P.concat([ex(O[O.length-1],Fw,x1),ex(I[0],Fw,x1)]);P=P.concat(I);if(x0>0)P=P.concat([ex(I[I.length-1],B,x0),ex(O[0],B,x0)]);return P;}
+function awallCorners(e){const h=(+e.thick||20)/2,G=arcGeom(e);if(!G||G.r<=h+0.5)return awallPoly(e);const t1=G.t0+G.sw,at=(t,r)=>[G.c[0]+r*Math.cos(t),G.c[1]+r*Math.sin(t)];return [at(G.t0,G.r+h),at(t1,G.r+h),at(t1,G.r-h),at(G.t0,G.r-h)];}
+// corner piece where two wall ends meet at an angle: fills the outer wedge up to the sharp corner
+function miterFill(J,u1,h1,u2,h2){const cr=u1[0]*u2[1]-u1[1]*u2[0],dt=u1[0]*u2[0]+u1[1]*u2[1];if(Math.abs(cr)<1e-4||dt>0.999)return null;
+  const sd=cr>0?1:-1,Wc=[J[0]+sd*u1[1]*h1,J[1]-sd*u1[0]*h1],Ac=[J[0]-sd*u2[1]*h2,J[1]+sd*u2[0]*h2];
+  const t=((Ac[0]-Wc[0])*u2[1]-(Ac[1]-Wc[1])*u2[0])/cr,M=[Wc[0]+u1[0]*t,Wc[1]+u1[1]*t];return dist(M,J)>3*Math.max(h1,h2)?[J,Wc,Ac]:[J,Wc,M,Ac];}
+function onArcBody(G,p,tolr){if(Math.abs(dist(p,G.c)-G.r)>tolr)return false;const TAU=Math.PI*2,sg=Math.sign(G.sw)||1,u=(((sg*(Math.atan2(p[1]-G.c[1],p[0]-G.c[0])-G.t0))%TAU)+TAU)%TAU;return u>0.002&&u<Math.abs(G.sw)-0.002;}
+// how the two ends of a curved wall meet their neighbours: x0/x1 = straight run-on into a wall's side, fill = corner pieces at end-to-end joints
+function awallEnds(e){const G=arcGeom(e),h=(+e.thick||20)/2,res={x0:0,x1:0,fill:[]};if(!G||G.r<=h+0.5)return res;const sg=Math.sign(G.sw)||1,t1=G.t0+G.sw;
+  const ends=[[e.a,[-sg*Math.sin(G.t0),sg*Math.cos(G.t0)],"x0"],[e.b,[sg*Math.sin(t1),-sg*Math.cos(t1)],"x1"]];
+  for(const o of ents()){if(o===e||!visible(o))continue;
+    if(o.type==="wall"){const A=[o.x1,o.y1],B=[o.x2,o.y2],L=dist(A,B)||1,ho=o.thick/2;
+      for(const [J,u,k] of ends){let f=null;if(dist(J,A)<1.5)f=miterFill(J,[(B[0]-A[0])/L,(B[1]-A[1])/L],ho,u,h);else if(dist(J,B)<1.5)f=miterFill(J,[(A[0]-B[0])/L,(A[1]-B[1])/L],ho,u,h);
+        else{const r=projSeg(J,A,B);if(r.t>0.0005&&r.t<0.9995&&dist(J,r.pt)<=ho+1)res[k]=Math.max(res[k],ho);}if(f)res.fill.push(f);}}
+    else if(o.type==="awall"){const Go=arcGeom(o);if(!Go)continue;const ho=(+o.thick||20)/2,so=Math.sign(Go.sw)||1,to1=Go.t0+Go.sw;
+      for(const [J,u,k] of ends){let f=null;if(dist(J,o.a)<1.5)f=miterFill(J,[-so*Math.sin(Go.t0),so*Math.cos(Go.t0)],ho,u,h);else if(dist(J,o.b)<1.5)f=miterFill(J,[so*Math.sin(to1),-so*Math.cos(to1)],ho,u,h);
+        else if(onArcBody(Go,J,ho+1))res[k]=Math.max(res[k],ho);if(f)res.fill.push(f);}}}
+  return res;}
+function wallBody(e){return e.type==="awall"?[awallPoly(e)].concat(awallEnds(e).fill):wallPolys(e);}
 function arcMode(){return S.tool==="arc"||(S.tool==="wall"&&!!S.opt.wall.arc);}
 // DXF: turn the short chords of a wall outline back into true arcs (LWPOLYLINE bulges)
 function awallCircles(list){const out=[];for(const e of list){if(e.type!=="awall")continue;const G=arcGeom(e),h=(+e.thick||20)/2;if(!G||G.r<=h+0.5)continue;const st=arcStep(G.r);out.push({c:G.c,R:G.r+h,st},{c:G.c,R:G.r-h,st});}return out;}
-function arcifyRing(r,circ){const n=r.length;if(!circ.length||n<3)return r.map(p=>({p,b:0}));
+function arcifyRing(r,circ,onCol){const n=r.length;if((!circ.length&&!onCol)||n<3)return r.map(p=>({p,b:0}));
   const on=(p,k)=>Math.abs(dist(p,k.c)-k.R)<0.3;const ek=[],th=[];
-  for(let i=0;i<n;i++){const a=r[i],b=r[(i+1)%n];let f=-1;for(let j=0;j<circ.length;j++){const k=circ[j];if(on(a,k)&&on(b,k)&&dist(a,b)<=2*k.R*Math.sin(k.st/2)*1.25+0.5){f=j;break;}}ek.push(f);
+  for(let i=0;i<n;i++){const a=r[i],b=r[(i+1)%n];let f=-1;if(onCol&&onCol(a,b)){ek.push(-2);th.push(0);continue;}for(let j=0;j<circ.length;j++){const k=circ[j];if(on(a,k)&&on(b,k)&&dist(a,b)<=2*k.R*Math.sin(k.st/2)*1.25+0.5){f=j;break;}}ek.push(f);
     if(f<0)th.push(0);else{const c=circ[f].c,u=[a[0]-c[0],a[1]-c[1]],v=[b[0]-c[0],b[1]-c[1]];th.push(Math.atan2(u[0]*v[1]-u[1]*v[0],u[0]*v[0]+u[1]*v[1]));}}
   let s0=0;for(let i=0;i<n;i++){const p=(i-1+n)%n;if(ek[i]<0||ek[i]!==ek[p]||Math.sign(th[i])!==Math.sign(th[p])){s0=i;break;}}
-  const out=[];let i=0;while(i<n){const k=(s0+i)%n;if(ek[k]<0){out.push({p:r[k],b:0});i++;continue;}
+  const out=[];let i=0;while(i<n){const k=(s0+i)%n;if(ek[k]<0){out.push({p:r[k],b:0,drop:ek[k]===-2});i++;continue;}
     let sum=0,j=i;while(j<n){const q=(s0+j)%n;if(ek[q]!==ek[k]||Math.sign(th[q])!==Math.sign(th[k])||Math.abs(sum+th[q])>Math.PI*0.9)break;sum+=th[q];j++;}
     if(j===i){out.push({p:r[k],b:0});i++;continue;}
     out.push({p:r[k],b:-Math.tan(sum/4)});i=j;} // the file's y axis points up, so the turn direction flips
   return out;}
 function wallLen(e){return Math.hypot(e.x2-e.x1,e.y2-e.y1);}
 function wallDir(e){const L=wallLen(e)||1;return [(e.x2-e.x1)/L,(e.y2-e.y1)/L];}
-function endExt(e,pt){let ext=0;for(const o of ents()){if(o===e||!visible(o))continue;if(o.type==="awall"){if(dist(pt,o.a)<1.5||dist(pt,o.b)<1.5)ext=Math.max(ext,(+o.thick||20)/2);continue;}if(o.type!=="wall")continue;
+function endExt(e,pt){let ext=0;for(const o of ents()){if(o===e||!visible(o))continue;if(o.type==="awall"){const Go=arcGeom(o);if(Go&&dist(pt,o.a)>=1.5&&dist(pt,o.b)>=1.5&&onArcBody(Go,pt,(+o.thick||20)/2+1))ext=Math.max(ext,(+o.thick||20)/2);continue;}if(o.type!=="wall")continue;
   if(dist(pt,[o.x1,o.y1])<1.5||dist(pt,[o.x2,o.y2])<1.5){ext=Math.max(ext,o.thick/2);continue;}
   const r=projSeg(pt,[o.x1,o.y1],[o.x2,o.y2]);if(r.t>0.0005&&r.t<0.9995&&dist(pt,r.pt)<=o.thick/2+1)ext=Math.max(ext,o.thick/2);}return ext;}
 function wallOpenings(e){const L=wallLen(e),u=wallDir(e),out=[];
@@ -694,7 +714,7 @@ function snapCands(wm,ex,only){const out=[];for(const e of (only||ents())){if(!v
   else if(e.type==="image"){out.push({k:"end",p:[e.x,e.y]},{k:"end",p:[e.x+e.w,e.y+e.h]});}
   else if(e.type==="antet"){antRect(e).forEach(p=>out.push({k:"end",p}));}
   else if(e.type==="arc"||e.type==="awall"){const aw=e.type==="awall",k=aw&&wm?"wend":"end",r=aw&&wm?e.thick/2:0;out.push({k,p:e.a.slice(),r},{k,p:e.b.slice(),r},{k:"mid",p:arcMid(e)});const G=arcGeom(e);if(G)out.push({k:"cen",p:G.c});
-    if(aw&&!wm){const P=awallPoly(e),n=P.length/2;[P[0],P[n-1],P[n],P[P.length-1]].forEach(p=>out.push({k:"end",p}));}}}
+    if(aw&&!wm)awallCorners(e).forEach(p=>out.push({k:"end",p}));}}
  return out;}
 function nearestOn(p,tol,wm){let best=null;for(const e of ents()){if(!visible(e)||e.type==="image"||e.type==="text")continue;if(wm&&e.type==="wall"){const q=projSeg(p,[e.x1,e.y1],[e.x2,e.y2]).pt,dd=dist(p,q);if(dd<tol+e.thick/2&&(!best||dd<best.d))best={d:dd,p:q};continue;}let pr=e.type==="wall"?[{k:"l",a:[e.x1,e.y1],b:[e.x2,e.y2]}].concat(prims(e)):prims(e);
   for(const x of pr){if(x.k==="c"){const d=dist(p,x.c);if(d<1e-6)continue;const q=[x.c[0]+(p[0]-x.c[0])/d*x.r,x.c[1]+(p[1]-x.c[1])/d*x.r];const dd=dist(p,q);if(dd<tol&&(!best||dd<best.d))best={d:dd,p:q};continue;}
@@ -1413,7 +1433,8 @@ async function wallUnion(threeD){const walls=ents().filter(e=>(e.type==="wall"||
   const pc=window.polygonClipping;if(!pc)return null;const rd=v=>Math.round(v*100)/100;const groups=new Map();
   for(const w of walls){const h=threeD?(+w.height||280):0;const key=w.layer+"|"+h;if(!groups.has(key))groups.set(key,{layer:w.layer,h,polys:[]});
     for(const r of wallBody(w)){const ring=r.map(p=>[rd(p[0]),rd(p[1])]);ring.push(ring[0].slice());groups.get(key).polys.push([ring]);}}
-  const out=[];try{for(const g of groups.values()){if(!g.polys.length)continue;const mp=pc.union(...g.polys);out.push({layer:g.layer,h:g.h,mp});}}catch(e){return null;}
+  const cols=[];for(const c of ents()){if(c.type!=="column"||!visible(c))continue;let ring;if(c.shape==="round"){const R=(+c.w||60)/2,n=Math.max(24,Math.ceil(Math.PI*2/arcStep(R)));ring=[];for(let i=0;i<n;i++){const t=Math.PI*2*i/n;ring.push([rd(c.x+R*Math.cos(t)),rd(c.y+R*Math.sin(t))]);}}else ring=colPts(c).map(p=>[rd(p[0]),rd(p[1])]);ring.push(ring[0].slice());cols.push([ring]);}
+  const out=[];try{for(const g of groups.values()){if(!g.polys.length)continue;let mp=pc.union(...g.polys);if(cols.length){try{mp=pc.difference(mp,...cols);}catch(e){}}out.push({layer:g.layer,h:g.h,mp});}}catch(e){return null;}
   return out;}
 function cleanRing(r){let p=r.slice();if(p.length>1&&dist(p[0],p[p.length-1])<0.01)p.pop();let changed=true;
   while(changed&&p.length>3){changed=false;for(let i=0;i<p.length;i++){const a=p[(i-1+p.length)%p.length],b=p[i],c=p[(i+1)%p.length];const cr=(b[0]-a[0])*(c[1]-b[1])-(b[1]-a[1])*(c[0]-b[0]);if(dist(a,b)<0.01||Math.abs(cr)<0.01*Math.max(1,dist(a,c))){p.splice(i,1);changed=true;break;}}}
@@ -1439,6 +1460,12 @@ function buildDXF(threeD,outl){const o=[];const P=(c,v)=>{o.push(String(c));o.pu
   const PLB=(lay,vs,closed,z0,th)=>{head("LWPOLYLINE",lay);P(100,"AcDbPolyline");P(90,vs.length);P(70,closed?1:0);if(z0)P(38,N(z0));if(th)P(39,N(th));for(const v of vs){P(10,N(v.p[0]));P(20,N(-v.p[1]));if(Math.abs(v.b)>1e-9)P(42,(Math.round(v.b*1e8)/1e8).toString());}};
   const ARC=(lay,G)=>{head("ARC",lay);P(100,"AcDbCircle");P(10,N(G.c[0]));P(20,N(-G.c[1]));P(30,0);P(40,N(G.r));P(100,"AcDbArc");const nd=v=>((v%360)+360)%360,a0=-deg(G.t0),sw=-deg(G.sw);P(50,N(nd(sw>0?a0:a0+sw)));P(51,N(nd(sw>0?a0+sw:a0)));};
   const circ=awallCircles(ents().filter(visible));
+  // walls stop at columns: the pieces of a wall outline that coincide with a column's outline are not written
+  const colB=[];for(const c of ents()){if(c.type!=="column"||!visible(c))continue;if(c.shape==="round")colB.push({c:[c.x,c.y],R:(+c.w||60)/2});else colB.push({pts:colPts(c)});}
+  const onCol=colB.length?(a,b)=>{for(const k of colB){if(k.pts){const Q=k.pts;for(let i=0;i<Q.length;i++){const s0=Q[i],s1=Q[(i+1)%Q.length];if(dist(a,projSeg(a,s0,s1).pt)<0.06&&dist(b,projSeg(b,s0,s1).pt)<0.06)return true;}}
+      else if(Math.abs(dist(a,k.c)-k.R)<0.3&&Math.abs(dist(b,k.c)-k.R)<0.3&&dist(a,b)<=2*k.R*Math.sin(arcStep(k.R)/2)*1.25+0.5)return true;}return false;}:null;
+  const WALLRING=(lay,vs,z0,th)=>{if(!vs.some(v=>v.drop)){PLB(lay,vs,true,z0,th);return;}const n=vs.length;let s0=0;for(let i=0;i<n;i++)if(vs[(i-1+n)%n].drop&&!vs[i].drop){s0=i;break;}
+    let run=[];for(let i=0;i<n;i++){const v=vs[(s0+i)%n];if(v.drop){if(run.length){run.push({p:v.p,b:0});PLB(lay,run,false,z0,th);}run=[];}else run.push(v);}};
   const TXT=(lay,p,h,txt,angD,left)=>{head("TEXT",lay);P(100,"AcDbText");P(10,N(p[0]));P(20,N(-p[1]));P(30,0);P(40,N(h));P(1,txt);P(50,N(angD));if(!left){P(72,1);P(11,N(p[0]));P(21,N(-p[1]));P(31,0);}P(100,"AcDbText");};
   const TXS=(lay,p,h,txt,wf,al,sty)=>{head("TEXT",lay);P(100,"AcDbText");P(10,N(p[0]));P(20,N(-p[1]));P(30,0);P(40,N(h));P(1,txt);if(Math.abs(wf-1)>1e-3)P(41,N(wf));P(7,sty);if(al){P(72,al);P(11,N(p[0]));P(21,N(-p[1]));P(31,0);}P(100,"AcDbText");};
   const HATCH=(lay,hex,rings)=>{head("HATCH",lay);const rgb=parseInt(hex.slice(1),16);P(62,{0xee5a00:30,0x33346d:177,0xffffff:7}[rgb]||7);P(420,rgb);P(100,"AcDbHatch");P(10,0);P(20,0);P(30,0);P(210,0);P(220,0);P(230,1);P(2,"SOLID");P(70,1);P(71,0);P(91,rings.length);
@@ -1464,7 +1491,7 @@ function buildDXF(threeD,outl){const o=[];const P=(c,v)=>{o.push(String(c));o.pu
     if(e.type==="stair"&&threeD){const n=e.kind==="custom"?Math.max(2,Math.round(pathLen(e.pts)/(+e.depth||28))):Math.max(2,+e.n||16);const Ht=+e.height||n*17.5;const rz=Ht/(n+0);let i=0;for(const pr of prims(e)){if(pr.k==="l"){i++;LINE(lay,pr.a,pr.b,Math.min(i,n)*rz,0);}else if(pr.k==="c")CIRC(lay,pr.c,pr.r,0);else PL(lay,pr.pts,pr.closed,0,0);}continue;}
     const th=threeD&&e.type==="door"?(+e.height||210):0;
     for(const pr of prims(e)){if(pr.ghost)continue;if(pr.k==="l")LINE(lay,pr.a,pr.b,0,th);else if(pr.k==="p")PL(lay,pr.pts,pr.closed,0,th);else if(pr.k==="c")CIRC(lay,pr.c,pr.r,th);}}
-  if(outl)for(const g of outl)for(const poly of g.mp)for(const ring of poly){const r=cleanRing(ring);if(r.length>2)PLB(asciiName(g.layer),arcifyRing(r,circ),true,0,g.h);}
+  if(outl)for(const g of outl)for(const poly of g.mp)for(const ring of poly){const r=cleanRing(ring);if(r.length>2)WALLRING(asciiName(g.layer),arcifyRing(r,circ,onCol),0,g.h);}
   const entTxt=o.join("\n");o.length=0;
   // layer table with lineweights (370, 1/100 mm); every layer an entity uses is listed
   const names=new Set();S.proj.layers.forEach(l=>{const nm=asciiName(l.name);if(names.has(nm))return;names.add(nm);
