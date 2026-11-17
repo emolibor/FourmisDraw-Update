@@ -248,7 +248,7 @@ svg.i{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.7;stro
 <script>
 (function(){
   if(!window.FDBridge)return;
-  window.FD_NATIVE=true;window.FD_WEBVER=parseInt('21',10)||0;
+  window.FD_NATIVE=true;window.FD_WEBVER=parseInt('22',10)||0;
   var seq=0,pend={};
   window.__fdReply=function(id,ok,payload){var p=pend[id];if(!p)return;delete pend[id];ok?p.res(payload):p.rej(payload);};
   function call(op,args){return new Promise(function(res,rej){var id=++seq;pend[id]={res:res,rej:rej};args.id=id;args.op=op;FDBridge.postMessage(JSON.stringify(args));});}
@@ -292,6 +292,7 @@ const IC={
  door:'<path d="M4 20h4V8"/><path d="M8 8a12 12 0 0 1 12 12"/><path d="M16 20h4"/>',
  stair:'<path d="M4 20h4v-4h4v-4h4V8h4V4"/>',
  line:'<path d="M5 19L19 5"/><circle cx="5" cy="19" r="1.5"/><circle cx="19" cy="5" r="1.5"/>',
+ arc:'<path d="M5 19A14 14 0 0 1 19 5"/><circle cx="5" cy="19" r="1.5"/><circle cx="19" cy="5" r="1.5"/>',
  pline:'<path d="M4 18l5-9 6 5 5-9"/>',
  circle:'<circle cx="12" cy="12" r="8"/><path d="M12 12h8"/>',
  rect:'<rect x="4" y="6" width="16" height="12"/>',
@@ -409,9 +410,41 @@ function sampleProject(){
 function newProject(){const P={id:uid(),name:"Keşif "+new Date().toLocaleDateString("tr-TR"),updated:Date.now(),layers:DEFAULT_LAYERS(),cur:"DUVAR",view:{x:300,y:200,z:.5},ents:[]};return P;}
 
 /* ================= geometry: walls ================= */
+/* ================= arcs & curved walls: start a, end b and a point m on the curve ================= */
+function arcGeom(e){const a=e.a,b=e.b,m=e.m;const d=2*(a[0]*(m[1]-b[1])+m[0]*(b[1]-a[1])+b[0]*(a[1]-m[1]));if(Math.abs(d)<1e-6)return null;
+  const A=a[0]*a[0]+a[1]*a[1],M=m[0]*m[0]+m[1]*m[1],B=b[0]*b[0]+b[1]*b[1];
+  const c=[(A*(m[1]-b[1])+M*(b[1]-a[1])+B*(a[1]-m[1]))/d,(A*(b[0]-m[0])+M*(a[0]-b[0])+B*(m[0]-a[0]))/d];
+  const r=dist(c,a);if(!(r>0.5)||r>1e6)return null;const TAU=Math.PI*2,nm=v=>((v%TAU)+TAU)%TAU;
+  const t0=Math.atan2(a[1]-c[1],a[0]-c[0]),tm=Math.atan2(m[1]-c[1],m[0]-c[0]),t1=Math.atan2(b[1]-c[1],b[0]-c[0]);
+  let sw=nm(t1-t0);if(nm(tm-t0)>sw)sw-=TAU; // sweep from a to b that passes through m
+  return {c,r,t0,sw};}
+function arcStep(r){return 2*Math.acos(Math.max(-1,1-0.1/Math.max(r,0.2)));} // chords stay within 1 mm of the curve
+function arcPtsAt(G,r,x0,x1){const sg=Math.sign(G.sw)||1,t0=G.t0-sg*(x0||0),sw=G.sw+sg*((x0||0)+(x1||0));const n=Math.min(720,Math.max(6,Math.ceil(Math.abs(sw)/arcStep(G.r))));const out=[];
+  for(let i=0;i<=n;i++){const t=t0+sw*i/n;out.push([G.c[0]+r*Math.cos(t),G.c[1]+r*Math.sin(t)]);}return out;}
+function arcLen(e){const G=arcGeom(e);return G?Math.abs(G.sw)*G.r:dist(e.a,e.b);}
+function arcMid(e){const G=arcGeom(e);if(!G)return lerp(e.a,e.b,.5);const t=G.t0+G.sw/2;return [G.c[0]+G.r*Math.cos(t),G.c[1]+G.r*Math.sin(t)];}
+function arcLinePts(e){const G=arcGeom(e);return G?arcPtsAt(G,G.r):[e.a,e.b];}
+// curved wall body: outer arc then inner arc back; ends run into the walls they touch, like straight walls
+function awallPoly(e){const h=(+e.thick||20)/2,G=arcGeom(e);
+  if(!G||G.r<=h+0.5){const L=dist(e.a,e.b)||1,n=[-(e.b[1]-e.a[1])/L*h,(e.b[0]-e.a[0])/L*h];return [[e.a[0]+n[0],e.a[1]+n[1]],[e.b[0]+n[0],e.b[1]+n[1]],[e.b[0]-n[0],e.b[1]-n[1]],[e.a[0]-n[0],e.a[1]-n[1]]];}
+  const x0=endExt(e,e.a)/G.r,x1=endExt(e,e.b)/G.r;return arcPtsAt(G,G.r+h,x0,x1).concat(arcPtsAt(G,G.r-h,x0,x1).reverse());}
+function wallBody(e){return e.type==="awall"?[awallPoly(e)]:wallPolys(e);}
+function arcMode(){return S.tool==="arc"||(S.tool==="wall"&&!!S.opt.wall.arc);}
+// DXF: turn the short chords of a wall outline back into true arcs (LWPOLYLINE bulges)
+function awallCircles(list){const out=[];for(const e of list){if(e.type!=="awall")continue;const G=arcGeom(e),h=(+e.thick||20)/2;if(!G||G.r<=h+0.5)continue;const st=arcStep(G.r);out.push({c:G.c,R:G.r+h,st},{c:G.c,R:G.r-h,st});}return out;}
+function arcifyRing(r,circ){const n=r.length;if(!circ.length||n<3)return r.map(p=>({p,b:0}));
+  const on=(p,k)=>Math.abs(dist(p,k.c)-k.R)<0.3;const ek=[],th=[];
+  for(let i=0;i<n;i++){const a=r[i],b=r[(i+1)%n];let f=-1;for(let j=0;j<circ.length;j++){const k=circ[j];if(on(a,k)&&on(b,k)&&dist(a,b)<=2*k.R*Math.sin(k.st/2)*1.25+0.5){f=j;break;}}ek.push(f);
+    if(f<0)th.push(0);else{const c=circ[f].c,u=[a[0]-c[0],a[1]-c[1]],v=[b[0]-c[0],b[1]-c[1]];th.push(Math.atan2(u[0]*v[1]-u[1]*v[0],u[0]*v[0]+u[1]*v[1]));}}
+  let s0=0;for(let i=0;i<n;i++){const p=(i-1+n)%n;if(ek[i]<0||ek[i]!==ek[p]||Math.sign(th[i])!==Math.sign(th[p])){s0=i;break;}}
+  const out=[];let i=0;while(i<n){const k=(s0+i)%n;if(ek[k]<0){out.push({p:r[k],b:0});i++;continue;}
+    let sum=0,j=i;while(j<n){const q=(s0+j)%n;if(ek[q]!==ek[k]||Math.sign(th[q])!==Math.sign(th[k])||Math.abs(sum+th[q])>Math.PI*0.9)break;sum+=th[q];j++;}
+    if(j===i){out.push({p:r[k],b:0});i++;continue;}
+    out.push({p:r[k],b:-Math.tan(sum/4)});i=j;} // the file's y axis points up, so the turn direction flips
+  return out;}
 function wallLen(e){return Math.hypot(e.x2-e.x1,e.y2-e.y1);}
 function wallDir(e){const L=wallLen(e)||1;return [(e.x2-e.x1)/L,(e.y2-e.y1)/L];}
-function endExt(e,pt){let ext=0;for(const o of ents()){if(o===e||o.type!=="wall"||!visible(o))continue;
+function endExt(e,pt){let ext=0;for(const o of ents()){if(o===e||!visible(o))continue;if(o.type==="awall"){if(dist(pt,o.a)<1.5||dist(pt,o.b)<1.5)ext=Math.max(ext,(+o.thick||20)/2);continue;}if(o.type!=="wall")continue;
   if(dist(pt,[o.x1,o.y1])<1.5||dist(pt,[o.x2,o.y2])<1.5){ext=Math.max(ext,o.thick/2);continue;}
   const r=projSeg(pt,[o.x1,o.y1],[o.x2,o.y2]);if(r.t>0.0005&&r.t<0.9995&&dist(pt,r.pt)<=o.thick/2+1)ext=Math.max(ext,o.thick/2);}return ext;}
 function wallOpenings(e){const L=wallLen(e),u=wallDir(e),out=[];
@@ -470,6 +503,7 @@ function offsetGhost(e,p){const d=+S.opt.offset.dist||0;if(!(d>0))return null;co
   const side=(a,b)=>{const L=dist(a,b)||1,n=[-(b[1]-a[1])/L,(b[0]-a[0])/L];return [n,((p[0]-a[0])*n[0]+(p[1]-a[1])*n[1])>=0?1:-1];};
   if(e.type==="line"||e.type==="wall"){const [n,s]=side([e.x1,e.y1],[e.x2,e.y2]);g.x1+=n[0]*d*s;g.y1+=n[1]*d*s;g.x2+=n[0]*d*s;g.y2+=n[1]*d*s;return g;}
   if(e.type==="circle"){const r=dist(p,[e.cx,e.cy])<e.r?e.r-d:e.r+d;if(r<=0)return null;g.r=r;return g;}
+  if(e.type==="arc"||e.type==="awall"){const G=arcGeom(e);if(!G)return null;const r=dist(p,G.c)<G.r?G.r-d:G.r+d;if(r<=1)return null;const k=r/G.r,f=q=>[G.c[0]+(q[0]-G.c[0])*k,G.c[1]+(q[1]-G.c[1])*k];g.a=f(e.a);g.b=f(e.b);g.m=f(e.m);return g;}
   if(e.type==="pline"||e.type==="rect"||e.type==="mline"){const c=!!e.closed;const n=e.pts.length,m=c?n:n-1;let best=null;for(let i=0;i<m;i++){const a=e.pts[i],b=e.pts[(i+1)%n];const dd=dist(p,projSeg(p,a,b).pt);if(!best||dd<best.d)best={d:dd,a,b};}
     if(!best)return null;let s=side(best.a,best.b)[1];
     if(c){const inside=pointInPoly(p,e.pts);const area=polyArea(e.pts);s=(inside?-1:1)*(area>0?-1:1);}
@@ -550,6 +584,8 @@ function prims(e){
    case "text":return [{k:"p",pts:textBox(e),closed:true}];
    case "image":return [{k:"p",pts:[[e.x,e.y],[e.x+e.w,e.y],[e.x+e.w,e.y+e.h],[e.x,e.y+e.h]],closed:true}];
    case "antet":return antPrims(e);
+   case "arc":return [{k:"p",pts:arcLinePts(e)}];
+   case "awall":return [{k:"p",pts:awallPoly(e),closed:true}];
   }return [];}
 function primSegs(pr){const out=[];if(pr.k==="l")out.push([pr.a,pr.b]);else if(pr.k==="p"){for(let i=0;i<pr.pts.length-1;i++)out.push([pr.pts[i],pr.pts[i+1]]);if(pr.closed&&pr.pts.length>2)out.push([pr.pts[pr.pts.length-1],pr.pts[0]]);}else if(pr.k==="c"){const p=arcPts(pr.c,pr.r,0,2*Math.PI,48);for(let i=0;i<p.length-1;i++)out.push([p[i],p[i+1]]);}return out;}
 function bbox(e){let x0=1e18,y0=1e18,x1=-1e18,y1=-1e18;const add=p=>{x0=Math.min(x0,p[0]);y0=Math.min(y0,p[1]);x1=Math.max(x1,p[0]);y1=Math.max(y1,p[1]);};
@@ -574,24 +610,24 @@ function renderScene(c,w,h,view,o){ // o: {grid,bg,sel,lineScale}
   // images first
   for(const e of list)if(e.type==="image"){const im=getImg(e.src);c.globalAlpha=e.op??.5;const a=T([e.x,e.y]);c.save();c.translate(a[0],a[1]);c.rotate(vr);if(im)c.drawImage(im,0,0,e.w*z,e.h*z);else{c.strokeStyle=aci(8);c.strokeRect(0,0,e.w*z,e.h*z);}c.restore();c.globalAlpha=1;}
   // walls: stroke all, then fill all (union outline)
-  const walls=list.filter(e=>e.type==="wall");const bgc=o.bg;
-  for(const e of walls){c.globalAlpha=e.op??1;c.strokeStyle=aci(layerOf(e.layer).color);c.lineWidth=2*ls;c.lineJoin="miter";for(const r of wallPolys(e)){tracePrim(c,{k:"p",pts:r,closed:true},T);c.stroke();}}
-  for(const e of walls){c.globalAlpha=e.op??1;c.fillStyle=mixHex(bgc,aci(layerOf(e.layer).color),.22);for(const r of wallPolys(e)){tracePrim(c,{k:"p",pts:r,closed:true},T);c.fill();}}
+  const walls=list.filter(e=>e.type==="wall"||e.type==="awall");const bgc=o.bg;
+  for(const e of walls){c.globalAlpha=e.op??1;c.strokeStyle=aci(layerOf(e.layer).color);c.lineWidth=2*ls;c.lineJoin=e.type==="awall"?"round":"miter";for(const r of wallBody(e)){tracePrim(c,{k:"p",pts:r,closed:true},T);c.stroke();}}
+  for(const e of walls){c.globalAlpha=e.op??1;c.fillStyle=mixHex(bgc,aci(layerOf(e.layer).color),.22);for(const r of wallBody(e)){tracePrim(c,{k:"p",pts:r,closed:true},T);c.fill();}}
   c.globalAlpha=1;
   for(const e of list){if(e.type!=="column")continue;c.globalAlpha=e.op??1;const col=aci(layerOf(e.layer).color);c.fillStyle=mixHex(bgc,col,.55);c.strokeStyle=col;c.lineWidth=1.5*ls;for(const pr of prims(e)){tracePrim(c,pr,T);c.fill();c.stroke();}}
   for(const e of list){if(e.type!=="text"||!e.txt)continue;c.globalAlpha=e.op??1;c.fillStyle=aci(layerOf(e.layer).color);const q=T([e.x,e.y]);c.save();c.translate(q[0],q[1]);c.rotate(vr-rad(e.ang||0));c.font="600 "+Math.max(0.5,(+e.h||30)*z)+"px 'IBM Plex Sans', system-ui, sans-serif";c.textAlign="left";c.textBaseline="alphabetic";c.fillText(e.txt,0,0);c.restore();}
   c.globalAlpha=1;
   for(const e of list)if(e.type==="antet")drawAntet(c,e,T,z,vr,ls,o);
-  for(const e of list){if(e.type==="wall"||e.type==="image"||e.type==="column"||e.type==="text"||e.type==="antet")continue;c.globalAlpha=e.op??1;c.strokeStyle=aci(layerOf(e.layer).color);c.lineWidth=(e.type==="door"?1.4:1.5)*ls;c.lineJoin="round";c.lineCap="round";for(const pr of prims(e)){if(pr.ghost){if(!o.sel)continue;c.save();c.globalAlpha=.6;c.lineWidth=1;c.setLineDash([5,4]);tracePrim(c,pr,T);c.stroke();c.restore();continue;}tracePrim(c,pr,T);c.stroke();}}
+  for(const e of list){if(e.type==="wall"||e.type==="awall"||e.type==="image"||e.type==="column"||e.type==="text"||e.type==="antet")continue;c.globalAlpha=e.op??1;c.strokeStyle=aci(layerOf(e.layer).color);c.lineWidth=(e.type==="door"?1.4:1.5)*ls;c.lineJoin="round";c.lineCap="round";for(const pr of prims(e)){if(pr.ghost){if(!o.sel)continue;c.save();c.globalAlpha=.6;c.lineWidth=1;c.setLineDash([5,4]);tracePrim(c,pr,T);c.stroke();c.restore();continue;}tracePrim(c,pr,T);c.stroke();}}
   c.globalAlpha=1;
   // wall dimensions
   if(SET.dims&&layerOf("OLCU").on){c.font=(11*ls)+"px 'IBM Plex Mono', monospace";c.fillStyle=aci(layerOf("OLCU").color);c.textAlign="center";c.textBaseline="middle";
-    for(const e of walls){const L=wallLen(e);if(L*z<40)continue;const u=wallDir(e),n=[-u[1],u[0]];const mid=[(e.x1+e.x2)/2+n[0]*(e.thick/2+14/z),(e.y1+e.y2)/2+n[1]*(e.thick/2+14/z)];const q=T(mid);const ur=o.sel?uiRad():0;let a=Math.atan2(u[1],u[0])+vr-ur;a=Math.atan2(Math.sin(a),Math.cos(a));if(a>Math.PI/2-1e-6)a-=Math.PI;if(a<-Math.PI/2-1e-6)a+=Math.PI;a+=ur;c.save();c.translate(q[0],q[1]);c.rotate(a);c.fillText(fmt(L),0,0);c.restore();}}
+    for(const e of walls){let L,u,mid,dtx;if(e.type==="awall"){const G=arcGeom(e);if(!G)continue;L=Math.abs(G.sw)*G.r;const t=G.t0+G.sw/2,rr=G.r+e.thick/2+14/z;u=[-Math.sin(t),Math.cos(t)];mid=[G.c[0]+rr*Math.cos(t),G.c[1]+rr*Math.sin(t)];dtx=fmt(L)+" · R "+fmt(G.r);}else{L=wallLen(e);u=wallDir(e);const n=[-u[1],u[0]];mid=[(e.x1+e.x2)/2+n[0]*(e.thick/2+14/z),(e.y1+e.y2)/2+n[1]*(e.thick/2+14/z)];dtx=fmt(L);}if(L*z<40)continue;const q=T(mid);const ur=o.sel?uiRad():0;let a=Math.atan2(u[1],u[0])+vr-ur;a=Math.atan2(Math.sin(a),Math.cos(a));if(a>Math.PI/2-1e-6)a-=Math.PI;if(a<-Math.PI/2-1e-6)a+=Math.PI;a+=ur;c.save();c.translate(q[0],q[1]);c.rotate(a);c.fillText(dtx,0,0);c.restore();}}
   // selection
   if(o.sel){c.strokeStyle=cssv("--sel");c.lineWidth=2.5;c.setLineDash([6,4]);for(const id of S.sel){const e=byId(id);if(!e)continue;if(e.type==="wall"){const u=wallDir(e),n=[-u[1],u[0]],h=e.thick/2;tracePrim(c,{k:"p",pts:[[e.x1+n[0]*h,e.y1+n[1]*h],[e.x2+n[0]*h,e.y2+n[1]*h],[e.x2-n[0]*h,e.y2-n[1]*h],[e.x1-n[0]*h,e.y1-n[1]*h]],closed:true},T);c.stroke();}else for(const pr of prims(e)){tracePrim(c,pr,T);c.stroke();}}
     c.setLineDash([]);c.fillStyle=cssv("--sel");for(const id of S.sel){const e=byId(id);if(!e)continue;for(const p of grips(e)){const q=T(p);c.fillRect(q[0]-4,q[1]-4,8,8);}}}
   c.restore();}
-function grips(e){if(e.type==="wall"||e.type==="line")return [[e.x1,e.y1],[e.x2,e.y2]];if(e.type==="pline"||e.type==="rect"||e.type==="mline")return e.pts;if(e.type==="circle")return [[e.cx,e.cy]];if(e.type==="column"||e.type==="text")return [[e.x,e.y]];if(e.type==="door"||e.type==="stair")return e.kind==="custom"?e.pts:[[e.x,e.y]];if(e.type==="image"||e.type==="antet")return [[e.x,e.y]];return [];}
+function grips(e){if(e.type==="wall"||e.type==="line")return [[e.x1,e.y1],[e.x2,e.y2]];if(e.type==="arc"||e.type==="awall")return [e.a,e.b,arcMid(e)];if(e.type==="pline"||e.type==="rect"||e.type==="mline")return e.pts;if(e.type==="circle")return [[e.cx,e.cy]];if(e.type==="column"||e.type==="text")return [[e.x,e.y]];if(e.type==="door"||e.type==="stair")return e.kind==="custom"?e.pts:[[e.x,e.y]];if(e.type==="image"||e.type==="antet")return [[e.x,e.y]];return [];}
 
 let raf=0;function draw(){if(raf)return;raf=requestAnimationFrame(()=>{raf=0;drawNow();});}
 function drawNow(){if(!S.proj)return;const dpr=window.devicePixelRatio||1;const w=W(),h=H();if(cv.width!==Math.round(w*dpr)||cv.height!==Math.round(h*dpr)){cv.width=Math.round(w*dpr);cv.height=Math.round(h*dpr);}
@@ -604,6 +640,11 @@ function drawOverlay(){const c=g,z=S.view.z,T=w2s;Tz=z;const acc=cssv("--accent"
       else{tracePrim(c,{k:"l",a:D.start,b:cur},T);c.stroke();}
       lenLabel(D.start,cur);}
     if(D.kind==="pts"&&D.pts.length){const pts=D.pts.concat([cur]);if(S.tool==="stair"){customStairPrims({pts,width:S.opt.stair.width,depth:S.opt.stair.depth}).forEach(pr=>{tracePrim(c,pr,T);c.stroke();});}else if(S.tool==="mline"){mlinePrims({pts,width:S.opt.mline.width,caps:S.opt.mline.caps}).forEach(pr=>{tracePrim(c,pr,T);c.stroke();});c.globalAlpha=.35;tracePrim(c,{k:"p",pts},T);c.setLineDash([4,4]);c.stroke();c.setLineDash([]);c.globalAlpha=1;}else{tracePrim(c,{k:"p",pts},T);c.stroke();}lenLabel(D.pts[D.pts.length-1],cur);}
+    if(D.kind==="arc"){if(!D.b){c.setLineDash([5,4]);tracePrim(c,{k:"l",a:D.a,b:cur},T);c.stroke();c.setLineDash([]);lenLabel(D.a,cur);}
+      else{const te={a:D.a,b:D.b,m:cur,thick:+S.opt.wall.thick||20},G=arcGeom(te);
+        c.save();c.globalAlpha=.45;c.setLineDash([4,4]);tracePrim(c,{k:"l",a:D.a,b:D.b},T);c.stroke();c.restore();
+        if(G){if(S.tool==="wall"){c.fillStyle=acc+"33";tracePrim(c,{k:"p",pts:awallPoly(te),closed:true},T);c.fill();c.stroke();}else{tracePrim(c,{k:"p",pts:arcLinePts(te)},T);c.stroke();}
+          label(cur,"R "+fmt(G.r)+" · yay "+fmt(Math.abs(G.sw)*G.r)+" cm");}}}
     if(D.kind==="circle"&&D.c){const r=dist(D.c,cur);tracePrim(c,{k:"c",c:D.c,r},T);c.stroke();tracePrim(c,{k:"l",a:D.c,b:cur},T);c.setLineDash([4,4]);c.stroke();c.setLineDash([]);label(cur,"r "+fmt(r));}
     if(D.kind==="rect"&&D.a){const a=D.a;tracePrim(c,{k:"p",pts:[a,[cur[0],a[1]],cur,[a[0],cur[1]]],closed:true},T);c.stroke();label(cur,fmt(Math.abs(cur[0]-a[0]))+" × "+fmt(Math.abs(cur[1]-a[1])));}
   }
@@ -651,7 +692,9 @@ function snapCands(wm,ex,only){const out=[];for(const e of (only||ents())){if(!v
   else if(e.type==="stair"){if(e.kind==="custom")e.pts.forEach(p=>out.push({k:"end",p}));else if(e.kind==="sketch")(e.outlines||[]).forEach(o=>o.pts.forEach(p=>out.push({k:"end",p})));else{out.push({k:"end",p:[e.x,e.y]});if(e.kind==="spiral")out.push({k:"cen",p:[e.x,e.y]});}}
   else if(e.type==="text"){out.push({k:"end",p:[e.x,e.y]});}
   else if(e.type==="image"){out.push({k:"end",p:[e.x,e.y]},{k:"end",p:[e.x+e.w,e.y+e.h]});}
-  else if(e.type==="antet"){antRect(e).forEach(p=>out.push({k:"end",p}));}}
+  else if(e.type==="antet"){antRect(e).forEach(p=>out.push({k:"end",p}));}
+  else if(e.type==="arc"||e.type==="awall"){const aw=e.type==="awall",k=aw&&wm?"wend":"end",r=aw&&wm?e.thick/2:0;out.push({k,p:e.a.slice(),r},{k,p:e.b.slice(),r},{k:"mid",p:arcMid(e)});const G=arcGeom(e);if(G)out.push({k:"cen",p:G.c});
+    if(aw&&!wm){const P=awallPoly(e),n=P.length/2;[P[0],P[n-1],P[n],P[P.length-1]].forEach(p=>out.push({k:"end",p}));}}}
  return out;}
 function nearestOn(p,tol,wm){let best=null;for(const e of ents()){if(!visible(e)||e.type==="image"||e.type==="text")continue;if(wm&&e.type==="wall"){const q=projSeg(p,[e.x1,e.y1],[e.x2,e.y2]).pt,dd=dist(p,q);if(dd<tol+e.thick/2&&(!best||dd<best.d))best={d:dd,p:q};continue;}let pr=e.type==="wall"?[{k:"l",a:[e.x1,e.y1],b:[e.x2,e.y2]}].concat(prims(e)):prims(e);
   for(const x of pr){if(x.k==="c"){const d=dist(p,x.c);if(d<1e-6)continue;const q=[x.c[0]+(p[0]-x.c[0])/d*x.r,x.c[1]+(p[1]-x.c[1])/d*x.r];const dd=dist(p,q);if(dd<tol&&(!best||dd<best.d))best={d:dd,p:q};continue;}
@@ -726,6 +769,7 @@ function hitTest(p,px){const tol=(px||10)/S.view.z;let best=null;
     else if(e.type==="image"){if(p[0]>=e.x&&p[0]<=e.x+e.w&&p[1]>=e.y&&p[1]<=e.y+e.h)d=tol*0.9;}
     else for(const pr of prims(e)){if(pr.k==="c")d=Math.min(d,Math.abs(dist(p,pr.c)-pr.r));else for(const s of primSegs(pr))d=Math.min(d,dist(p,projSeg(p,s[0],s[1]).pt));}
     if(e.type==="text"){if(pointInPoly(p,textBox(e)))d=Math.min(d,tol*.3);}
+    if(e.type==="awall"){if(pointInPoly(p,awallPoly(e)))d=0;}
     if(e.type==="antet"){if(pointInPoly(p,antRect(e)))d=Math.min(d,tol*.95);}
     if(e.type==="column"){const inside=e.shape==="round"?dist(p,[e.x,e.y])<=e.w/2:pointInPoly(p,colPts(e));if(inside)d=Math.min(d,tol*.3);}
     if(e.type==="stair"&&e.kind!=="custom"){const b=bbox(e);if(p[0]>=b[0]&&p[0]<=b[2]&&p[1]>=b[1]&&p[1]<=b[3])d=Math.min(d,tol*.5);}
@@ -757,6 +801,7 @@ function xformEnt(e,M){const det=M[0]*M[3]-M[1]*M[2],sc=Math.sqrt(Math.abs(det))
   else if(e.type==="column"){const c=ap(M,[e.x,e.y]);e.x=c[0];e.y=c[1];e.ang=deg(dirAng(rad(-(e.ang||0))))*-1;if(Math.abs(sc-1)>1e-6){e.w=Math.round(e.w*sc*10)/10;e.d=Math.round(e.d*sc*10)/10;}}
   else if(e.type==="door"){const c=ap(M,[e.x,e.y]);e.x=c[0];e.y=c[1];e.ang=dirAng(e.ang);if(det<0)e.flip=-(e.flip||1);if(Math.abs(sc-1)>1e-6){e.width=Math.round(e.width*sc);}}
   else if(e.type==="stair"){if(e.kind==="sketch"){const f=p=>ap(M,p);(e.outlines||[]).forEach(o=>o.pts=o.pts.map(f));e.flights.forEach(fl=>{fl.treads=fl.treads.map(t=>t.map(f));fl.rect=fl.rect.map(f);if(fl.steps)fl.steps=fl.steps.map(q=>q.map(f));});(e.landings||[]).forEach(l=>{l.pts=l.pts.map(f);});e.arrow=e.arrow.map(f);const c=f([e.x,e.y]);e.x=c[0];e.y=c[1];return;}if(e.kind==="custom"){e.pts=e.pts.map(p=>ap(M,p));}else{const c=ap(M,[e.x,e.y]);e.x=c[0];e.y=c[1];e.ang=dirAng(e.ang||0);if(det<0)e.m=-(e.m||1);}if(Math.abs(sc-1)>1e-6){e.width=Math.round(e.width*sc);e.depth=Math.round(e.depth*sc*10)/10;e.landing=Math.round((e.landing||100)*sc);}}
+  else if(e.type==="arc"||e.type==="awall"){e.a=ap(M,e.a);e.b=ap(M,e.b);e.m=ap(M,e.m);if(e.type==="awall"&&Math.abs(sc-1)>1e-6)e.thick=Math.round(e.thick*sc*10)/10;}
   else if(e.type==="antet"){const t=antT(e),c=ap(M,[e.x+t.w/2,e.y+t.h/2]);e.x=c[0]-t.w/2;e.y=c[1]-t.h/2;}
   else if(e.type==="image"){const a=ap(M,[e.x,e.y]),b=ap(M,[e.x+e.w,e.y+e.h]);e.x=Math.min(a[0],b[0]);e.y=Math.min(a[1],b[1]);e.w=Math.abs(b[0]-a[0]);e.h=Math.abs(b[1]-a[1]);}
 }
@@ -1018,7 +1063,7 @@ function trimAt(p){const tol=12/S.view.z;let target=null;
 /* ================= tools & dock ================= */
 const TABS={
  el:[["select","Seç"],["wall","Duvar"],["column","Kolon"],["door","Kapı"],["stair","Merdiven"]],
- dr:[["select","Seç"],["line","Çizgi"],["pline","Polyline"],["mline","Çoklu çizgi"],["circle","Daire"],["rect","Dikdörtgen"],["text","Metin"],["trim","Kırp"]],
+ dr:[["select","Seç"],["line","Çizgi"],["arc","Yay"],["pline","Polyline"],["mline","Çoklu çizgi"],["circle","Daire"],["rect","Dikdörtgen"],["text","Metin"],["trim","Kırp"]],
  ed:[["select","Seç"],["move","Taşı"],["rotate","Döndür"],["scale","Ölçekle"],["mirror","Aynala"],["copy","Çoğalt"],["offset","Ötele"],["group","Grupla"],["erase","Sil"]],
  an:[["select","Seç"],["antet_elek","Elektrik"],["antet_mek","Mekanik"]]};
 function renderDock(){$("#tabs").querySelectorAll("button").forEach(b=>b.setAttribute("aria-selected",b.dataset.tab===S.tab?"true":"false"));
@@ -1048,7 +1093,8 @@ function renderCtx(){const C=$("#ctx");let h="";
     if(S.cmd.base&&S.cmd.name==="scale")h+=fld("cScl","Oran","","×");
     if(S.cmd.base&&(S.cmd.name==="move"||S.cmd.name==="copy"))h+=fld("cLen","Mesafe","","cm");
   }
-  else if(S.tool==="wall"){const o=S.opt.wall;h='<span class="t">Duvar</span>'+fld("oThick","Kalınlık",o.thick,"cm")+fld("oH","Yükseklik",o.height,"cm","isteğe bağlı")+fld("oLen","Uzunluk","","cm")+'<button class="sbtn" id="oEnd" type="button">Bitir</button>';}
+  else if(S.tool==="wall"){const o=S.opt.wall;h='<span class="t">Duvar</span><div class="seg" id="wMode"><button type="button" data-k="0" aria-pressed="'+!o.arc+'">Düz</button><button type="button" data-k="1" aria-pressed="'+!!o.arc+'">Yay</button></div>'+fld("oThick","Kalınlık",o.thick,"cm")+fld("oH","Yükseklik",o.height,"cm","isteğe bağlı")+(o.arc?'<span class="hint">Başlangıca, sonra bitişe dokun · ardından kavisin geçeceği yere sürükle</span>':fld("oLen","Uzunluk","","cm")+'<button class="sbtn" id="oEnd" type="button">Bitir</button>');}
+  else if(S.tool==="arc"){h='<span class="t">Yay</span><span class="hint">Başlangıca, sonra bitişe dokun · ardından kavisin geçeceği yere sürükle</span>';}
   else if(S.tool==="door"){const o=S.opt.door;h='<span class="t">Kapı</span><div class="seg" id="oKind">'+DOOR_KINDS.map(([k,l])=>'<button type="button" data-k="'+k+'" aria-pressed="'+(o.kind===k)+'">'+l+'</button>').join("")+'</div>'+fld("oW","Genişlik",o.width,"cm")+fld("oH","Yükseklik",o.height,"cm","isteğe bağlı")+'<span class="hint">Duvarın üzerine dokun ya da sürükle</span>';}
   else if(S.tool==="stair"){const o=S.opt.stair;const simple=o.kind==="custom",sk=o.kind==="sketch",free=simple||sk;
     h='<span class="t">Merdiven</span><div class="seg" id="oKind">'+STAIR_KINDS.map(([k,l])=>'<button type="button" data-k="'+k+'" aria-pressed="'+(o.kind===k)+'">'+l+'</button>').join("")+'</div>';
@@ -1072,6 +1118,7 @@ else if(S.tool==="trim"){h='<span class="t">Kırp</span><span class="hint">Silin
 function cancelTool(){trackReset();S.draft=null;S.cmd=null;S.stairProp=null;S.sketch.strokes=[];S.hoverDoor=null;S.offEnt=null;S.tool="select";renderDock();renderCtx();draw();}
 function bindCtx(){const on=(id,ev,fn)=>{const el=document.getElementById(id);if(el)el.addEventListener(ev,fn);};
   const numOpt=(id,obj,key)=>on(id,"input",e=>{obj[key]=e.target.value===""?"":+e.target.value;if(S.tool==="stair"){updateStairReadout();if(S.stairProp&&(key==="width"||key==="depth"))rebuildProp(true);}draw();});
+  on("wMode","click",e=>{const b=e.target.closest("button");if(!b)return;S.opt.wall.arc=b.dataset.k==="1";S.draft=null;renderCtx();draw();});
   numOpt("oThick",S.opt.wall,"thick");if(S.tool==="wall")numOpt("oH",S.opt.wall,"height");
   if(S.tool==="door"){on("oW","input",e=>{const v=e.target.value===""?"":+e.target.value;S.opt.door.width=v;if(v>0)rememberDoor(S.opt.door.kind,v);draw();});numOpt("oH",S.opt.door,"height");}
   numOpt("tH",S.opt.text,"h");numOpt("tA",S.opt.text,"ang");
@@ -1152,7 +1199,7 @@ function fingerTap(raw){if(S.cmd||S.draft)return;const hit=hitTest(raw,22);
   else if(S.tool==="select"&&S.sel.size){S.sel.clear();refreshPanels();draw();}}
 function startPinch(){S.tap=null;const t=[...S.pointers.values()].filter(p=>p.type==="touch");const a=t[0],b=t[1];S.pinch={d:Math.hypot(a.x-b.x,a.y-b.y),c:[(a.x+b.x)/2,(a.y+b.y)/2],w:s2w((a.x+b.x)/2,(a.y+b.y)/2),z:S.view.z};S.pan=null;}
 function doPinch(){const t=[...S.pointers.values()].filter(p=>p.type==="touch");if(t.length<2)return;const a=t[0],b=t[1];const d=Math.hypot(a.x-b.x,a.y-b.y),c=[(a.x+b.x)/2,(a.y+b.y)/2];S.view.z=clamp(S.pinch.z*d/S.pinch.d,0.02,8);const dv=vRot([(c[0]-W()/2)/S.view.z,(c[1]-H()/2)/S.view.z],-(S.view.r||0));S.view.x=S.pinch.w[0]-dv[0];S.view.y=S.pinch.w[1]-dv[1];updStatus();draw();}
-function fromPoint(){const D=S.draft;if(S.cmd&&S.cmd.base)return S.cmd.base;if(D&&D.kind==="chain")return D.start;if(D&&D.kind==="pts")return D.pts[D.pts.length-1];if(D&&D.kind==="rect")return D.a;if(D&&D.kind==="circle")return D.c;return null;}
+function fromPoint(){const D=S.draft;if(S.cmd&&S.cmd.base)return S.cmd.base;if(D&&D.kind==="arc")return D.b?null:D.a;if(D&&D.kind==="chain")return D.start;if(D&&D.kind==="pts")return D.pts[D.pts.length-1];if(D&&D.kind==="rect")return D.a;if(D&&D.kind==="circle")return D.c;return null;}
 function updateCursor(raw){S.raw=raw;if(S.cmd&&S.cmd.base&&(S.cmd.name==="move"||S.cmd.name==="copy")){if(!S.cmd.mv)S.cmd.mv=buildMoveSnap();const r=moveSnap(S.cmd.mv,[raw[0]-S.cmd.base[0],raw[1]-S.cmd.base[1]]);S.cur=[S.cmd.base[0]+r.d[0],S.cmd.base[1]+r.d[1]];S.snap=r.snap;}
   else if(S.tool==="select"&&!S.cmd){S.snap=null;S.cur=raw;}else{const s=snapPoint(raw,fromPoint());S.snap=s.k?s:null;S.cur=s.p;if(S.snap&&["end","mid","cen","int"].includes(S.snap.k)&&!(S.cmd&&S.cmd.base))scheduleAcq(S.snap.p,null);else if(!S.snap||S.snap.k!=="track")cancelAcq();}
   $("#stXY").textContent="x "+fmt(S.cur[0])+" · y "+fmt(-S.cur[1]);$("#stSnap").textContent=S.snap?({track:"Hiza",end:"Uç nokta",mid:"Orta nokta",cen:"Merkez",grid:"Izgara",near:"Üzerinde",int:"Kesişim"}[S.snap.k]):"";}
@@ -1166,6 +1213,7 @@ function toolDown(raw,e){const p=S.cur;
   if(S.tool==="select"){const hit=hitTest(raw);if(hit){if(e.shiftKey){{const gs=grpSet(hit.id);if(S.sel.has(hit.id))gs.forEach(id=>S.sel.delete(id));else gs.forEach(id=>S.sel.add(id));};}else if(!S.sel.has(hit.id)){S.sel=grpSet(hit.id);}
       S.drag={start:raw,snap:JSON.stringify(ents()),moved:false,mv:buildMoveSnap(),hit:hit.id,shift:e.shiftKey};refreshPanels();}
     else{if(!e.shiftKey)S.sel.clear();S.box={a:raw,b:raw};refreshPanels();}return;}
+  if(arcMode()){if(!S.draft||S.draft.kind!=="arc")S.draft={kind:"arc",a:p.slice(),b:null};return;}
   if(S.tool==="wall"||S.tool==="line"){if(!S.draft)S.draft={kind:"chain",start:p,count:0};return;}
   if(S.tool==="stair"&&(S.opt.stair.kind==="custom"||S.opt.stair.kind==="sketch")){if(S.stairProp)return;S.draft={kind:"scribble",pts:[raw]};return;}
   if(S.tool==="pline"||S.tool==="mline"){if(!S.draft)S.draft={kind:"pts",pts:[p]};return;}
@@ -1193,6 +1241,14 @@ function toolUp(raw,e){const p=S.cur;const moved=downInfo&&downInfo.moved;
   if(S.tool==="stair"&&S.opt.stair.kind==="sketch"){const D=S.draft;S.draft=null;if(!D||D.kind!=="scribble")return;D.pts.push(raw);if(pathLen(D.pts)*S.view.z>=6)S.sketch.strokes.push(D.pts);renderCtx();return;}
   if(S.tool==="stair"&&S.opt.stair.kind==="custom"){const D=S.draft;S.draft=null;if(!D||D.kind!=="scribble")return;D.pts.push(raw);
     if(pathLen(D.pts)*S.view.z<40){toast("Biraz daha uzun karala");return;}S.stairProp={raw:D.pts};interpretScribble();renderCtx();return;}
+  if(arcMode()){const D=S.draft;if(!D||D.kind!=="arc")return;
+    if(!D.b){if(dist(D.a,p)*S.view.z<8)return;D.b=p.slice();return;}
+    const te={a:D.a,b:D.b,m:p},G=arcGeom(te),ch=dist(D.a,D.b)||1,sag=Math.abs((D.b[0]-D.a[0])*(p[1]-D.a[1])-(D.b[1]-D.a[1])*(p[0]-D.a[0]))/ch;
+    if(!G||sag*S.view.z<6){toast("Yayı bükmek için kavisin geçeceği yere doğru sürükle");return;}
+    pushUndo();const m=arcMid(te);
+    if(S.tool==="wall"){const o=S.opt.wall;addEnt({type:"awall",layer:layerFor("DUVAR"),a:D.a,b:D.b,m,thick:+o.thick||20,height:o.height});}
+    else addEnt({type:"arc",layer:drawLayer(),a:D.a,b:D.b,m});
+    S.draft=null;return;}
   if(S.tool==="wall"||S.tool==="line"||S.tool==="pline"||S.tool==="mline"){const D=S.draft;
     const last=D?(D.kind==="chain"?D.start:D.pts[D.pts.length-1]):null;const now=Date.now();
     if(D&&last&&dist(last,p)*S.view.z<8){ // tap on last point: finish if double-tap
@@ -1217,7 +1273,7 @@ document.addEventListener("keydown",e=>{if(!S.proj||$("#editor").hidden)return;c
 window.addEventListener("resize",()=>draw());
 
 /* ================= properties panel ================= */
-const TYPE_NAME={wall:"Duvar",door:"Kapı",column:"Kolon",text:"Metin",stair:"Merdiven",line:"Çizgi",pline:"Polyline",mline:"Çoklu çizgi",rect:"Dikdörtgen",circle:"Daire",image:"Altlık",antet:"Antet"};
+const TYPE_NAME={wall:"Duvar",door:"Kapı",column:"Kolon",text:"Metin",stair:"Merdiven",line:"Çizgi",pline:"Polyline",mline:"Çoklu çizgi",rect:"Dikdörtgen",circle:"Daire",image:"Altlık",antet:"Antet",arc:"Yay",awall:"Yay duvar"};
 function prow(label,inner){return '<div class="row"><span>'+label+'</span>'+inner+'</div>';}
 function pnum(key,val,step){return '<input type="number" inputmode="decimal" data-k="'+key+'" value="'+(val===""||val==null?"":Math.round(val*10)/10)+'"'+(step?' step="'+step+'"':'')+'>';}
 function refreshPanels(){renderProps();if(!$("#layers").hidden)renderLayers();}
@@ -1229,6 +1285,8 @@ function renderProps(){const P=$("#props");if(!S.sel.size||!$("#layers").hidden&
   if(one){if(e.type==="wall"){h+=prow("Kalınlık",pnum("thick",e.thick))+prow("Uzunluk",pnum("len",wallLen(e)))+prow("Yükseklik",pnum("height",e.height));}
     if(e.type==="line"){h+=prow("Uzunluk",pnum("len",dist([e.x1,e.y1],[e.x2,e.y2])))+prow("Açı",pnum("lang",(deg(Math.atan2(-(e.y2-e.y1),e.x2-e.x1))+360)%360));}
     if(e.type==="circle"){h+=prow("Yarıçap",pnum("r",e.r))+prow("Çap",pnum("dia",e.r*2));}
+    if(e.type==="arc"||e.type==="awall"){const G=arcGeom(e);if(e.type==="awall")h+=prow("Kalınlık",pnum("thick",e.thick))+prow("Yükseklik",pnum("height",e.height));
+      h+=prow("Yarıçap",'<span class="num">'+(G?fmt(G.r):"—")+' cm</span>')+prow("Yay uzunluğu",'<span class="num">'+fmt(arcLen(e))+' cm</span>')+prow("Açı",'<span class="num">'+(G?fmt(deg(Math.abs(G.sw))):"0")+'°</span>');}
     if(e.type==="rect"){const b=bbox(e);h+=prow("Genişlik",pnum("rw",b[2]-b[0]))+prow("Yükseklik",pnum("rh",b[3]-b[1]));}
     if(e.type==="mline"){h+=prow("Aralık",pnum("width",e.width))+prow("Kapalı",'<select data-k="closed"><option value="0"'+(e.closed?"":" selected")+'>Hayır</option><option value="1"'+(e.closed?" selected":"")+'>Evet</option></select>')+prow("Uçları kapat",'<select data-k="caps"><option value="1"'+(e.caps!==false?" selected":"")+'>Evet</option><option value="0"'+(e.caps===false?" selected":"")+'>Hayır</option></select>');}
     if(e.type==="pline"){h+=prow("Kapalı",'<select data-k="closed"><option value="0"'+(e.closed?"":" selected")+'>Hayır</option><option value="1"'+(e.closed?" selected":"")+'>Evet</option></select>')+prow("Uzunluk",'<span class="num">'+fmt(pathLen(e.closed?e.pts.concat([e.pts[0]]):e.pts))+' cm</span>');}
@@ -1317,11 +1375,11 @@ async function doExport(f,dim,white){const nm=safeName();
 
 /* ---------- DXF writer (R12, cm) ---------- */
 function asciiName(n){return n.replace(/Ç/g,"C").replace(/Ğ/g,"G").replace(/İ/g,"I").replace(/Ö/g,"O").replace(/Ş/g,"S").replace(/Ü/g,"U").replace(/[^A-Z0-9_\- ]/gi,"_");}
-async function wallUnion(threeD){const walls=ents().filter(e=>e.type==="wall"&&visible(e));if(!walls.length)return [];
+async function wallUnion(threeD){const walls=ents().filter(e=>(e.type==="wall"||e.type==="awall")&&visible(e));if(!walls.length)return [];
   try{await loadScript("lib/polygon-clipping.umd.min.js");}catch(e){return null;}
   const pc=window.polygonClipping;if(!pc)return null;const rd=v=>Math.round(v*100)/100;const groups=new Map();
   for(const w of walls){const h=threeD?(+w.height||280):0;const key=w.layer+"|"+h;if(!groups.has(key))groups.set(key,{layer:w.layer,h,polys:[]});
-    for(const r of wallPolys(w)){const ring=r.map(p=>[rd(p[0]),rd(p[1])]);ring.push(ring[0].slice());groups.get(key).polys.push([ring]);}}
+    for(const r of wallBody(w)){const ring=r.map(p=>[rd(p[0]),rd(p[1])]);ring.push(ring[0].slice());groups.get(key).polys.push([ring]);}}
   const out=[];try{for(const g of groups.values()){if(!g.polys.length)continue;const mp=pc.union(...g.polys);out.push({layer:g.layer,h:g.h,mp});}}catch(e){return null;}
   return out;}
 function cleanRing(r){let p=r.slice();if(p.length>1&&dist(p[0],p[p.length-1])<0.01)p.pop();let changed=true;
@@ -1345,6 +1403,9 @@ function buildDXF(threeD,outl){const o=[];const P=(c,v)=>{o.push(String(c));o.pu
   const head=(type,lay)=>{P(0,type);P(5,hd());P(330,MS);P(100,"AcDbEntity");P(8,lay);};
   const LINE=(lay,a,b,z0,th)=>{head("LINE",lay);P(100,"AcDbLine");if(th)P(39,N(th));P(10,N(a[0]));P(20,N(-a[1]));P(30,N(z0||0));P(11,N(b[0]));P(21,N(-b[1]));P(31,N(z0||0));};
   const PL=(lay,pts,closed,z0,th)=>{head("LWPOLYLINE",lay);P(100,"AcDbPolyline");P(90,pts.length);P(70,closed?1:0);if(z0)P(38,N(z0));if(th)P(39,N(th));for(const p of pts){P(10,N(p[0]));P(20,N(-p[1]));}};
+  const PLB=(lay,vs,closed,z0,th)=>{head("LWPOLYLINE",lay);P(100,"AcDbPolyline");P(90,vs.length);P(70,closed?1:0);if(z0)P(38,N(z0));if(th)P(39,N(th));for(const v of vs){P(10,N(v.p[0]));P(20,N(-v.p[1]));if(Math.abs(v.b)>1e-9)P(42,(Math.round(v.b*1e8)/1e8).toString());}};
+  const ARC=(lay,G)=>{head("ARC",lay);P(100,"AcDbCircle");P(10,N(G.c[0]));P(20,N(-G.c[1]));P(30,0);P(40,N(G.r));P(100,"AcDbArc");const nd=v=>((v%360)+360)%360,a0=-deg(G.t0),sw=-deg(G.sw);P(50,N(nd(sw>0?a0:a0+sw)));P(51,N(nd(sw>0?a0+sw:a0)));};
+  const circ=awallCircles(ents().filter(visible));
   const TXT=(lay,p,h,txt,angD,left)=>{head("TEXT",lay);P(100,"AcDbText");P(10,N(p[0]));P(20,N(-p[1]));P(30,0);P(40,N(h));P(1,txt);P(50,N(angD));if(!left){P(72,1);P(11,N(p[0]));P(21,N(-p[1]));P(31,0);}P(100,"AcDbText");};
   const TXS=(lay,p,h,txt,wf,al,sty)=>{head("TEXT",lay);P(100,"AcDbText");P(10,N(p[0]));P(20,N(-p[1]));P(30,0);P(40,N(h));P(1,txt);if(Math.abs(wf-1)>1e-3)P(41,N(wf));P(7,sty);if(al){P(72,al);P(11,N(p[0]));P(21,N(-p[1]));P(31,0);}P(100,"AcDbText");};
   const HATCH=(lay,hex,rings)=>{head("HATCH",lay);const rgb=parseInt(hex.slice(1),16);P(62,{0xee5a00:30,0x33346d:177,0xffffff:7}[rgb]||7);P(420,rgb);P(100,"AcDbHatch");P(10,0);P(20,0);P(30,0);P(210,0);P(220,0);P(230,1);P(2,"SOLID");P(70,1);P(71,0);P(91,rings.length);
@@ -1357,6 +1418,9 @@ function buildDXF(threeD,outl){const o=[];const P=(c,v)=>{o.push(String(c));o.pu
         const cap0=s[0]>0.5||free0,cap1=s[1]<L-0.5||free1;if(cap0)LINE(lay,pt(s[0],1),pt(s[0],-1),0,H3);if(cap1)LINE(lay,pt(s[1],1),pt(s[1],-1),0,H3);}
       if(threeD)for(const d of ents().filter(d=>d.type==="door"&&d.wallId===e.id)){const dh=+d.height||210;if(H3>dh){const t=(d.x-e.x1)*u[0]+(d.y-e.y1)*u[1];const a=t-d.width/2,bq=t+d.width/2;LINE(lay,pt(a,1),pt(bq,1),dh,H3-dh);LINE(lay,pt(a,-1),pt(bq,-1),dh,H3-dh);}}
       if(SET.dims){let a=Math.atan2(-u[1],u[0]);let ad=deg(a);if(ad>90)ad-=180;if(ad<-90)ad+=180;TXT(asciiName(layerOf("OLCU").name),[(e.x1+e.x2)/2+n[0]*(h+18),(e.y1+e.y2)/2+n[1]*(h+18)],12,fmt(L),ad);}continue;}
+    if(e.type==="awall"){if(!outl)PLB(lay,arcifyRing(awallPoly(e),circ),true,0,threeD?(+e.height||280):0);
+      const G=arcGeom(e);if(SET.dims&&G){const t=G.t0+G.sw/2,rr=G.r+e.thick/2+18;let ad=deg(Math.atan2(-Math.cos(t),-Math.sin(t)));if(ad>90)ad-=180;if(ad<-90)ad+=180;TXT(asciiName(layerOf("OLCU").name),[G.c[0]+rr*Math.cos(t),G.c[1]+rr*Math.sin(t)],12,fmt(Math.abs(G.sw)*G.r)+" R"+fmt(G.r),ad);}continue;}
+    if(e.type==="arc"){const G=arcGeom(e);if(G)ARC(lay,G);else LINE(lay,e.a,e.b,0,0);continue;}
     if(e.type==="text"){if(e.txt)TXT(lay,[e.x,e.y],+e.h||30,dxfText(e.txt),e.ang||0,true);continue;}
     if(e.type==="antet"){const t=antT(e);for(const [fc,rings] of t.fills)HATCH(lay,fc,rings.map(r=>r.map((v,i)=>v+(i%2?e.y:e.x))));for(const pr of antPrims(e))LINE(lay,pr.a,pr.b,0,0);
       for(const x of t.texts)TXS(lay,[e.x+x[1],e.y+x[2]],x[3],dxfText(x[0]),x[4],{l:0,c:1,r:2}[x[5]],ANTET_STY[x[6]||"a"]);
@@ -1367,7 +1431,7 @@ function buildDXF(threeD,outl){const o=[];const P=(c,v)=>{o.push(String(c));o.pu
     if(e.type==="stair"&&threeD){const n=e.kind==="custom"?Math.max(2,Math.round(pathLen(e.pts)/(+e.depth||28))):Math.max(2,+e.n||16);const Ht=+e.height||n*17.5;const rz=Ht/(n+0);let i=0;for(const pr of prims(e)){if(pr.k==="l"){i++;LINE(lay,pr.a,pr.b,Math.min(i,n)*rz,0);}else if(pr.k==="c")CIRC(lay,pr.c,pr.r,0);else PL(lay,pr.pts,pr.closed,0,0);}continue;}
     const th=threeD&&e.type==="door"?(+e.height||210):0;
     for(const pr of prims(e)){if(pr.ghost)continue;if(pr.k==="l")LINE(lay,pr.a,pr.b,0,th);else if(pr.k==="p")PL(lay,pr.pts,pr.closed,0,th);else if(pr.k==="c")CIRC(lay,pr.c,pr.r,th);}}
-  if(outl)for(const g of outl)for(const poly of g.mp)for(const ring of poly){const r=cleanRing(ring);if(r.length>2)PL(asciiName(g.layer),r,true,0,g.h);}
+  if(outl)for(const g of outl)for(const poly of g.mp)for(const ring of poly){const r=cleanRing(ring);if(r.length>2)PLB(asciiName(g.layer),arcifyRing(r,circ),true,0,g.h);}
   const entTxt=o.join("\n");o.length=0;
   // layer table with lineweights (370, 1/100 mm); every layer an entity uses is listed
   const names=new Set();S.proj.layers.forEach(l=>{const nm=asciiName(l.name);if(names.has(nm))return;names.add(nm);
@@ -1441,6 +1505,7 @@ async function open3D(){const root=document.createElement("div");root.id="v3d";r
   const lineMat=new THREE.LineBasicMaterial({color:new THREE.Color(aci(7))});
   const box=(cx,cz,len,thick,y0,h,ang,mat)=>{const m=new THREE.Mesh(new THREE.BoxGeometry(len,h,thick),mat);m.position.set(cx,y0+h/2,cz);m.rotation.y=-ang;scene.add(m);};
   for(const e of ents()){if(!visible(e)||e.type==="antet")continue;
+    if(e.type==="awall"){const Hh=+e.height||280;let pts=arcLinePts(e);const stp=Math.max(1,Math.ceil((pts.length-1)/72));pts=pts.filter((_,i)=>i%stp===0||i===pts.length-1);for(let i=0;i<pts.length-1;i++){const a=pts[i],b=pts[i+1],L=dist(a,b);if(L<0.01)continue;box((a[0]+b[0])/2,(a[1]+b[1])/2,L+e.thick*0.12,e.thick,0,Hh,Math.atan2(b[1]-a[1],b[0]-a[0]),wallMat);}continue;}
     if(e.type==="wall"){const Hh=+e.height||280,u=wallDir(e),ang=Math.atan2(u[1],u[0]);for(const s of wallSegs(e)){const mid=(s[0]+s[1])/2;box(e.x1+u[0]*mid,e.y1+u[1]*mid,s[1]-s[0],e.thick,0,Hh,ang,wallMat);}
       for(const d of ents().filter(d=>d.type==="door"&&d.wallId===e.id&&visible(d))){const dh=+d.height||210;const t=(d.x-e.x1)*u[0]+(d.y-e.y1)*u[1];if(Hh>dh)box(e.x1+u[0]*t,e.y1+u[1]*t,d.width,e.thick,dh,Hh-dh,ang,wallMat);if(d.kind!=="opening")box(d.x,d.y,d.width,4,0,dh,ang,doorMat);}}
     else if(e.type==="column"){const Hc=+e.height||280;if(e.shape==="round"){const m=new THREE.Mesh(new THREE.CylinderGeometry(e.w/2,e.w/2,Hc,24),colMat);m.position.set(e.x,Hc/2,e.y);scene.add(m);}else box(e.x,e.y,e.w,e.d,0,Hc,-rad(e.ang||0),colMat);}
