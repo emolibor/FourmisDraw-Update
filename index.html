@@ -248,7 +248,7 @@ svg.i{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.7;stro
 <script>
 (function(){
   if(!window.FDBridge)return;
-  window.FD_NATIVE=true;window.FD_WEBVER=parseInt('22',10)||0;
+  window.FD_NATIVE=true;window.FD_WEBVER=parseInt('23',10)||0;
   var seq=0,pend={};
   window.__fdReply=function(id,ok,payload){var p=pend[id];if(!p)return;delete pend[id];ok?p.res(payload):p.rej(payload);};
   function call(op,args){return new Promise(function(res,rej){var id=++seq;pend[id]={res:res,rej:rej};args.id=id;args.op=op;FDBridge.postMessage(JSON.stringify(args));});}
@@ -1046,19 +1046,52 @@ function interpretSketch(strokes){const all=[].concat(...strokes);if(all.length<
   const n=ordered.reduce((s,f)=>s+f.n,0);const ent={kind:"sketch",flights:ordered.map(f=>({treads:f.treads,rect:f.rect,spacing:f.spacing,entry:f.entry,exit:f.exit,dirv:f.dirv,n:f.n})),landings,outlines,arrow,n,x:arrow[0][0],y:arrow[0][1],ang:0,m:1,width:ordered[0].width,depth:Math.round(ordered[0].spacing)};
   const bx=bbox(Object.assign({type:"stair"},ent));const kinds=ordered.length===1?"Tek kollu":ordered.length===2?"İki kollu":ordered.length+" kollu";
   return {ent,label:kinds+" merdiven · "+n+" basamak · basamak derinliği ≈ "+fmt(ordered[0].spacing)+" cm · "+fmt(bx[2]-bx[0])+" × "+fmt(bx[3]-bx[1])+" cm"};}
+/* ---------- trim: tap the piece to remove; whatever crosses it is the cutting edge ---------- */
+const TRIM_TYPES=["line","wall","pline","rect","mline","circle","arc","awall"];
+function trimDist(e,p){if(e.type==="wall")return Math.max(0,dist(p,projSeg(p,[e.x1,e.y1],[e.x2,e.y2]).pt)-e.thick/2);
+  if(e.type==="awall"&&pointInPoly(p,awallPoly(e)))return 0;let d=1e18;
+  const pr=e.type==="mline"?prims(e).concat([{k:"p",pts:e.pts,closed:!!e.closed}]):prims(e);
+  for(const x of pr){if(x.k==="c")d=Math.min(d,Math.abs(dist(p,x.c)-x.r));else for(const sg of primSegs(x))d=Math.min(d,dist(p,projSeg(p,sg[0],sg[1]).pt));}return d;}
+// what another element contributes as cutting edges: walls cut walls at their axis, everything else also at their faces
+function trimCutPrims(o,e){const wl=t=>t==="wall"||t==="awall";if(wl(o.type)){const ax=o.type==="wall"?{k:"l",a:[o.x1,o.y1],b:[o.x2,o.y2]}:{k:"p",pts:arcLinePts(o)};return wl(e.type)?[ax]:prims(o).concat([ax]);}return prims(o);}
+function circCirc(c1,r1,c2,r2){const d=dist(c1,c2);if(d<1e-9||d>r1+r2+1e-9||d<Math.abs(r1-r2)-1e-9)return [];const a=(r1*r1-r2*r2+d*d)/(2*d),h=Math.sqrt(Math.max(0,r1*r1-a*a)),u=[(c2[0]-c1[0])/d,(c2[1]-c1[1])/d],m=[c1[0]+u[0]*a,c1[1]+u[1]*a];
+  return [[m[0]-u[1]*h,m[1]+u[0]*h],[m[0]+u[1]*h,m[1]-u[0]*h]];}
 function trimAt(p){const tol=12/S.view.z;let target=null;
-  for(const e of ents()){if((e.type!=="line"&&e.type!=="wall")||!editable(e))continue;let d=dist(p,projSeg(p,[e.x1,e.y1],[e.x2,e.y2]).pt);if(e.type==="wall")d=Math.max(0,d-e.thick/2);if(d<tol&&(!target||d<target.d))target={e,d};}
-  if(!target){toast("Bir duvarın ya da çizginin silinecek parçasına dokun");return;}
-  const e=target.e,a=[e.x1,e.y1],b=[e.x2,e.y2];const ts=[];
-  for(const o of ents()){if(o===e||!visible(o)||o.type==="image"||o.type==="door"||o.type==="text")continue;const pr=o.type==="wall"?(e.type==="wall"?[{k:"l",a:[o.x1,o.y1],b:[o.x2,o.y2]}]:prims(o).concat([{k:"l",a:[o.x1,o.y1],b:[o.x2,o.y2]}])):prims(o);
-    for(const x of pr){if(x.k==="c"){circInter(a,b,x.c,x.r).forEach(t=>{if(t>1e-6&&t<1-1e-6)ts.push(t);});continue;}for(const s of primSegs(x)){const t=segInter(a,b,s[0],s[1]);if(t!=null&&t>1e-6&&t<1-1e-6)ts.push(t);}}}
-  const tp=projSeg(p,a,b).t;let lo=0,hi=1;for(const t of ts){if(t<tp&&t>lo)lo=t;if(t>tp&&t<hi)hi=t;}
-  if(lo<1e-6&&hi>1-1e-6){toast("Bu parçayı kesen başka duvar ya da çizgi yok");return;}
-  pushUndo();const idx=ents().indexOf(e);ents().splice(idx,1);S.sel.delete(e.id);let w1=null,w2=null;
-  if(lo>1e-6){const q=lerp(a,b,lo);w1=Object.assign({},e,{id:uid(),x2:q[0],y2:q[1]});ents().push(w1);}
-  if(hi<1-1e-6){const q=lerp(a,b,hi);w2=Object.assign({},e,{id:uid(),x1:q[0],y1:q[1]});ents().push(w2);}
-  if(e.type==="wall"){const L=wallLen(e);const doors=ents().filter(d=>d.type==="door"&&d.wallId===e.id);for(const d of doors){const t=projSeg([d.x,d.y],a,b).t;if(t<lo&&w1)d.wallId=w1.id;else if(t>hi&&w2)d.wallId=w2.id;else ents().splice(ents().indexOf(d),1);}}
-  markDirty();draw();}
+  for(const e of ents()){if(!TRIM_TYPES.includes(e.type)||!editable(e))continue;const d=trimDist(e,p);if(d<tol&&(!target||d<target.d))target={e,d};}
+  if(!target){toast("Silinecek parçaya dokun: duvar, çizgi, yay, daire ya da polyline");return;}
+  const e=target.e,cut=[];for(const o of ents()){if(o===e||!visible(o)||o.type==="image"||o.type==="door"||o.type==="text"||o.type==="antet")continue;cut.push(...trimCutPrims(o,e));}
+  const none=()=>toast("Bu parçayı kesen başka bir eleman yok");
+  const swap=(pieces)=>{pushUndo();ents().splice(ents().indexOf(e),1);S.sel.delete(e.id);pieces.forEach(q=>{q.id=uid();ents().push(q);});markDirty();refreshPanels();draw();};
+  if(e.type==="line"||e.type==="wall"){const a=[e.x1,e.y1],b=[e.x2,e.y2],ts=[];
+    for(const x of cut){if(x.k==="c"){circInter(a,b,x.c,x.r).forEach(t=>{if(t>1e-6&&t<1-1e-6)ts.push(t);});continue;}for(const sg of primSegs(x)){const t=segInter(a,b,sg[0],sg[1]);if(t!=null&&t>1e-6&&t<1-1e-6)ts.push(t);}}
+    const tp=projSeg(p,a,b).t;let lo=0,hi=1;for(const t of ts){if(t<tp&&t>lo)lo=t;if(t>tp&&t<hi)hi=t;}
+    if(lo<1e-6&&hi>1-1e-6){none();return;}
+    pushUndo();ents().splice(ents().indexOf(e),1);S.sel.delete(e.id);let w1=null,w2=null;
+    if(lo>1e-6){const q=lerp(a,b,lo);w1=Object.assign({},e,{id:uid(),x2:q[0],y2:q[1]});ents().push(w1);}
+    if(hi<1-1e-6){const q=lerp(a,b,hi);w2=Object.assign({},e,{id:uid(),x1:q[0],y1:q[1]});ents().push(w2);}
+    if(e.type==="wall"){const doors=ents().filter(d=>d.type==="door"&&d.wallId===e.id);for(const d of doors){const t=projSeg([d.x,d.y],a,b).t;if(t<lo&&w1)d.wallId=w1.id;else if(t>hi&&w2)d.wallId=w2.id;else ents().splice(ents().indexOf(d),1);}}
+    markDirty();refreshPanels();draw();return;}
+  if(e.type==="circle"||e.type==="arc"||e.type==="awall"){const G=e.type==="circle"?{c:[e.cx,e.cy],r:e.r,t0:0,sw:Math.PI*2}:arcGeom(e);if(!G){none();return;}
+    const TAU=Math.PI*2,sg=Math.sign(G.sw)||1,L=Math.abs(G.sw),full=e.type==="circle",eps=0.02/G.r,nm=v=>((v%TAU)+TAU)%TAU;
+    const par=q=>nm(sg*(Math.atan2(q[1]-G.c[1],q[0]-G.c[0])-G.t0)),at=u=>{const t=G.t0+sg*u;return [G.c[0]+G.r*Math.cos(t),G.c[1]+G.r*Math.sin(t)];};
+    const us=[];const add=q=>{const u=par(q);if(full||(u>eps&&u<L-eps))us.push(u);};
+    for(const x of cut){if(x.k==="c"){circCirc(G.c,G.r,x.c,x.r).forEach(add);continue;}for(const s2 of primSegs(x))circInter(s2[0],s2[1],G.c,G.r).forEach(t=>{if(t>=-1e-9&&t<=1+1e-9)add(lerp(s2[0],s2[1],clamp(t,0,1)));});}
+    let up=par(p);const piece=(u0,u1)=>{const q=JSON.parse(JSON.stringify(e));if(full){q.type="arc";delete q.cx;delete q.cy;delete q.r;}q.a=at(u0);q.b=at(u1);q.m=at((u0+u1)/2);return q;};
+    if(full){us.sort((x,y)=>x-y);const uq=us.filter((u,i)=>i===0||u-us[i-1]>eps);if(uq.length>1&&TAU-uq[uq.length-1]+uq[0]<eps)uq.pop();if(uq.length<2){toast("Daireyi kırpmak için onu en az iki yerden kesen eleman gerekir");return;}
+      let lo=null,hi=null;for(const u of uq){if(u<up)lo=u;if(u>up&&hi==null)hi=u;}if(lo==null)lo=uq[uq.length-1]-TAU;if(hi==null)hi=uq[0]+TAU;swap([piece(hi,lo+TAU)]);return;}
+    if(up>L)up=(up-L<TAU-up)?L:0;let lo=0,hi=L;for(const u of us){if(u<up&&u>lo)lo=u;if(u>up&&u<hi)hi=u;}
+    if(lo<=eps&&hi>=L-eps){none();return;}const out=[];if(lo>eps)out.push(piece(0,lo));if(hi<L-eps)out.push(piece(hi,L));swap(out);return;}
+  // polyline, rectangle, multi-line: trimmed along the drawn path
+  const P=e.pts,n=P.length,closed=(!!e.closed||e.type==="rect")&&n>2,m=closed?n:n-1;if(m<1){none();return;}
+  let tp=0,bd=1e18;for(let i=0;i<m;i++){const r=projSeg(p,P[i],P[(i+1)%n]),d=dist(p,r.pt);if(d<bd){bd=d;tp=i+r.t;}}
+  let us=[];for(let i=0;i<m;i++){const a=P[i],b=P[(i+1)%n];const push=t=>{if(t>=-1e-9&&t<=1+1e-9)us.push(i+clamp(t,0,1));};
+    for(const x of cut){if(x.k==="c"){circInter(a,b,x.c,x.r).forEach(push);continue;}for(const s2 of primSegs(x)){const t=segInter(a,b,s2[0],s2[1]);if(t!=null)push(t);}}}
+  const eps=1e-6,at=u=>{const k=closed?((u%m)+m)%m:clamp(u,0,m),i=Math.min(m-1,Math.floor(k));return lerp(P[i],P[(i+1)%n],k-i);};
+  const sub=(u0,u1)=>{const pts=[at(u0)];for(let k=Math.floor(u0)+1;k<u1-eps;k++)pts.push(P[((k%n)+n)%n].slice());pts.push(at(u1));const out=pts.filter((q,i)=>i===0||dist(q,pts[i-1])>1e-4);if(out.length<2)return null;const q=JSON.parse(JSON.stringify(e));if(q.type==="rect")q.type="pline";q.pts=out;q.closed=false;return q;};
+  if(closed){us=us.map(u=>u>=m-eps?u-m:u).sort((x,y)=>x-y);const uq=us.filter((u,i)=>i===0||u-us[i-1]>eps);if(uq.length<2){toast("Kapalı şekli kırpmak için onu en az iki yerden kesen eleman gerekir");return;}
+    let lo=null,hi=null;for(const u of uq){if(u<tp)lo=u;if(u>tp&&hi==null)hi=u;}if(lo==null)lo=uq[uq.length-1]-m;if(hi==null)hi=uq[0]+m;const q=sub(hi,lo+m);if(!q){none();return;}swap([q]);return;}
+  let lo=0,hi=m;for(const u of us){if(u<tp&&u>lo)lo=u;if(u>tp&&u<hi)hi=u;}
+  if(lo<=eps&&hi>=m-eps){none();return;}const out=[];if(lo>eps){const q=sub(0,lo);if(q)out.push(q);}if(hi<m-eps){const q=sub(hi,m);if(q)out.push(q);}swap(out);}
 
 /* ================= tools & dock ================= */
 const TABS={
@@ -1112,7 +1145,7 @@ function renderCtx(){const C=$("#ctx");let h="";
   else if(S.tool==="rect"){h='<span class="t">Dikdörtgen</span><span class="hint">Bir köşeden karşı köşeye sürükle</span>';}
   else if(S.tool==="text"){const o=S.opt.text;h='<span class="t">Metin</span>'+fld("tH","Yazı boyu",o.h,"cm")+fld("tA","Açı",o.ang,"°")+'<span class="hint">Yazının başlayacağı yere dokun; Zemin kat, 1. kat, mahal adı…</span>';}
   else if(S.tool==="antet_elek"||S.tool==="antet_mek"){const t=ANTET_T[S.tool.slice(6)];h='<span class="t">'+ANTET_NAME[S.tool.slice(6)]+' anteti</span><span class="hint">Yerleşeceği yere dokun · A4 sabit boy ('+fmt(t.w)+' × '+fmt(t.h)+' cm = 1/100), ölçeklenmez</span>';}
-else if(S.tool==="trim"){h='<span class="t">Kırp</span><span class="hint">Silinecek duvar ya da çizgi parçasına dokun; keseni duvar ekseni ve çizgilerdir</span>';}
+else if(S.tool==="trim"){h='<span class="t">Kırp</span><span class="hint">Silinecek parçaya dokun: duvar, çizgi, yay, daire, dikdörtgen, polyline · onu kesen diğer elemanlar sınır olur</span>';}
   if(h)h='<button class="ib xbtn" id="ctxX" type="button" aria-label="Komuttan çık">'+ico("close")+'</button>'+h;
   C.innerHTML=h;bindCtx();}
 function cancelTool(){trackReset();S.draft=null;S.cmd=null;S.stairProp=null;S.sketch.strokes=[];S.hoverDoor=null;S.offEnt=null;S.tool="select";renderDock();renderCtx();draw();}
