@@ -256,7 +256,7 @@ svg.i{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.7;stro
 <script>
 (function(){
   if(!window.FDBridge)return;
-  window.FD_NATIVE=true;window.FD_WEBVER=parseInt('37',10)||0;
+  window.FD_NATIVE=true;window.FD_WEBVER=parseInt('38',10)||0;
   var seq=0,pend={};
   window.__fdReply=function(id,ok,payload){var p=pend[id];if(!p)return;delete pend[id];ok?p.res(payload):p.rej(payload);};
   function call(op,args){return new Promise(function(res,rej){var id=++seq;pend[id]={res:res,rej:rej};args.id=id;args.op=op;FDBridge.postMessage(JSON.stringify(args));});}
@@ -1613,8 +1613,11 @@ function buildDXF(threeD,outl){const o=[];const P=(c,v)=>{o.push(String(c));o.pu
       else if(Math.abs(dist(a,k.c)-k.R)<0.3&&Math.abs(dist(b,k.c)-k.R)<0.3&&dist(a,b)<=2*k.R*Math.sin(arcStep(k.R)/2)*1.25+0.5)return true;}return false;}:null;
   const WALLRING=(lay,vs,z0,th)=>{if(!vs.some(v=>v.drop)){PLB(lay,vs,true,z0,th);return;}const n=vs.length;let s0=0;for(let i=0;i<n;i++)if(vs[(i-1+n)%n].drop&&!vs[i].drop){s0=i;break;}
     let run=[];for(let i=0;i<n;i++){const v=vs[(s0+i)%n];if(v.drop){if(run.length){run.push({p:v.p,b:0});PLB(lay,run,false,z0,th);}run=[];}else run.push(v);}};
-  const TXT=(lay,p,h,txt,angD,left)=>{head("TEXT",lay);P(100,"AcDbText");P(10,N(p[0]));P(20,N(-p[1]));P(30,0);P(40,N(h));P(1,txt);P(50,N(angD));if(!left){P(72,1);P(11,N(p[0]));P(21,N(-p[1]));P(31,0);}P(100,"AcDbText");};
-  const TXS=(lay,p,h,txt,wf,al,sty)=>{head("TEXT",lay);P(100,"AcDbText");P(10,N(p[0]));P(20,N(-p[1]));P(30,0);P(40,N(h));P(1,txt);if(Math.abs(wf-1)>1e-3)P(41,N(wf));P(7,sty);if(al){P(72,al);P(11,N(p[0]));P(21,N(-p[1]));P(31,0);}P(100,"AcDbText");};
+  // Centred / right-aligned text: AutoCAD recomputes the start point from the alignment point, but lighter viewers
+  // (phone and tablet CAD apps) draw from the start point as written, so it is written already worked out.
+  const TW=(txt,h,wf,f)=>antMeasure(txt.replace(/\\U\+([0-9A-F]{4})/g,(m,x)=>String.fromCharCode(parseInt(x,16))),f||"a",h)*(wf||1);
+  const TXT=(lay,p,h,txt,angD,left)=>{head("TEXT",lay);P(100,"AcDbText");if(left){P(10,N(p[0]));P(20,N(-p[1]));}else{const w=TW(txt,h,1,"a"),a=rad(angD);P(10,N(p[0]-Math.cos(a)*w/2));P(20,N(-p[1]-Math.sin(a)*w/2));}P(30,0);P(40,N(h));P(1,txt);P(50,N(angD));if(!left){P(72,1);P(11,N(p[0]));P(21,N(-p[1]));P(31,0);}P(100,"AcDbText");};
+  const TXS=(lay,p,h,txt,wf,al,sty)=>{head("TEXT",lay);P(100,"AcDbText");const sx=al?TW(txt,h,wf,{ANTET_COMIC:"c",ANTET_VERDANA:"v"}[sty]||"a")*(al===2?1:0.5):0;P(10,N(p[0]-sx));P(20,N(-p[1]));P(30,0);P(40,N(h));P(1,txt);if(Math.abs(wf-1)>1e-3)P(41,N(wf));P(7,sty);if(al){P(72,al);P(11,N(p[0]));P(21,N(-p[1]));P(31,0);}P(100,"AcDbText");};
   const HATCH=(lay,hex,rings)=>{head("HATCH",lay);const rgb=parseInt(hex.slice(1),16);P(62,{0xee5a00:30,0x33346d:177,0xffffff:7}[rgb]||7);P(420,rgb);P(100,"AcDbHatch");P(10,0);P(20,0);P(30,0);P(210,0);P(220,0);P(230,1);P(2,"SOLID");P(70,1);P(71,0);P(91,rings.length);
     for(const r of rings){P(92,2);P(72,0);P(73,1);P(93,r.length/2);for(let i=0;i<r.length;i+=2){P(10,N(r[i]));P(20,N(-r[i+1]));}P(97,0);}P(75,0);P(76,1);P(98,0);};
   const CIRC=(lay,c,r,th)=>{head("CIRCLE",lay);P(100,"AcDbCircle");if(th)P(39,N(th));P(10,N(c[0]));P(20,N(-c[1]));P(30,0);P(40,N(r));};
