@@ -256,7 +256,7 @@ svg.i{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.7;stro
 <script>
 (function(){
   if(!window.FDBridge)return;
-  window.FD_NATIVE=true;window.FD_WEBVER=parseInt('36',10)||0;
+  window.FD_NATIVE=true;window.FD_WEBVER=parseInt('37',10)||0;
   var seq=0,pend={};
   window.__fdReply=function(id,ok,payload){var p=pend[id];if(!p)return;delete pend[id];ok?p.res(payload):p.rej(payload);};
   function call(op,args){return new Promise(function(res,rej){var id=++seq;pend[id]={res:res,rej:rej};args.id=id;args.op=op;FDBridge.postMessage(JSON.stringify(args));});}
@@ -485,7 +485,30 @@ function wallSegs(e){ // solid pieces [s0,s1] along axis, with extension
   return segs.filter(s=>s[1]-s[0]>0.5);}
 function wallRect(e,s0,s1){const u=wallDir(e),n=[-u[1],u[0]],h=e.thick/2,p=s=>[e.x1+u[0]*s,e.y1+u[1]*s];const a=p(s0),b=p(s1);
   return [[a[0]+n[0]*h,a[1]+n[1]*h],[b[0]+n[0]*h,b[1]+n[1]*h],[b[0]-n[0]*h,b[1]-n[1]*h],[a[0]-n[0]*h,a[1]-n[1]*h]];}
-function wallPolys(e){return wallSegs(e).map(s=>wallRect(e,s[0],s[1]));}
+// How a wall end meets its neighbour, side by side: returns the axial position (cm from the wall's start) where its
+// +normal side and -normal side stop, or null for the plain butt end. Two wall ends meeting (L): both are cut on the
+// bisector (mitre), so the corner closes with no spike or step whatever the angle. An end running into the side of
+// another wall (T): each side stops at that wall's centre line.
+function wallEndCut(e,atStart){const J=atStart?[e.x1,e.y1]:[e.x2,e.y2],u=wallDir(e),a=atStart?u:[-u[0],-u[1]],n=[-u[1],u[0]],h=e.thick/2,L=wallLen(e);
+  const ends=[],tees=[];for(const o of ents()){if(o===e||!visible(o))continue;
+    if(o.type==="awall"){if(dist(J,o.a)<1.5||dist(J,o.b)<1.5)return null;const Go=arcGeom(o);if(Go&&onArcBody(Go,J,(+o.thick||20)/2+1))return null;continue;}
+    if(o.type!=="wall")continue;if(dist(J,[o.x1,o.y1])<1.5)ends.push([o,1]);else if(dist(J,[o.x2,o.y2])<1.5)ends.push([o,-1]);
+    else{const r=projSeg(J,[o.x1,o.y1],[o.x2,o.y2]);if(r.t>0.0005&&r.t<0.9995&&dist(J,r.pt)<=o.thick/2+1)tees.push(o);}}
+  const toS=t=>atStart?t:L-t,cap=t=>Math.abs(t)<=4*Math.max(h,30);
+  const hit=(p,d,q,v)=>{const den=d[0]*v[1]-d[1]*v[0];if(Math.abs(den)<1e-6)return null;return ((q[0]-p[0])*v[1]-(q[1]-p[1])*v[0])/den;};
+  if(ends.length===1&&!tees.length){const [o,dir]=ends[0],ou=wallDir(o),b=dir>0?ou:[-ou[0],-ou[1]],hb=o.thick/2,nb=[-b[1],b[0]];
+    if(Math.abs(a[0]*b[1]-a[1]*b[0])<0.02)return (a[0]*b[0]+a[1]*b[1])<0?{p:toS(0),m:toS(0)}:null;// straight on: meet at the joint
+    const res={};for(const sd of [1,-1]){const off=[J[0]+n[0]*h*sd,J[1]+n[1]*h*sd],inner=(n[0]*sd*b[0]+n[1]*sd*b[1])>0;let sb=(nb[0]*a[0]+nb[1]*a[1])>0?1:-1;if(!inner)sb=-sb;
+      const t=hit(off,a,[J[0]+nb[0]*hb*sb,J[1]+nb[1]*hb*sb],b);if(t==null||!cap(t))return null;res[sd>0?"p":"m"]=toS(t);}
+    return res;}
+  if(!ends.length&&tees.length===1){const o=tees[0],ou=wallDir(o);if(Math.abs(a[0]*ou[1]-a[1]*ou[0])<0.05)return null;const res={};
+    for(const sd of [1,-1]){const off=[J[0]+n[0]*h*sd,J[1]+n[1]*h*sd],t=hit(off,a,[o.x1,o.y1],ou);if(t==null||!cap(t))return null;res[sd>0?"p":"m"]=toS(t);}return res;}
+  return null;}
+function wallPolys(e){const L=wallLen(e),segs=wallSegs(e);if(!segs.length)return [];const c0=wallEndCut(e,true),c1=wallEndCut(e,false),u=wallDir(e),n=[-u[1],u[0]],h=e.thick/2,first=segs[0],last=segs[segs.length-1];
+  const P=(s,sd)=>[e.x1+u[0]*s+n[0]*h*sd,e.y1+u[1]*s+n[1]*h*sd];
+  return segs.map(sg=>{const a0p=(sg===first&&c0)?c0.p:sg[0],a0m=(sg===first&&c0)?c0.m:sg[0],a1p=(sg===last&&c1)?c1.p:sg[1],a1m=(sg===last&&c1)?c1.m:sg[1];
+    if(sg===first&&c0&&sg[1]<Math.max(c0.p,c0.m)+0.5||sg===last&&c1&&sg[0]>Math.min(c1.p,c1.m)-0.5)return wallRect(e,sg[0],sg[1]);// a door right at the corner: keep it simple
+    return [P(a0p,1),P(a1p,1),P(a1m,-1),P(a0m,-1)];});}
 
 /* ================= geometry: primitives for doors / stairs / others ================= */
 // prim: {k:"l",a,b} | {k:"p",pts,closed} | {k:"c",c,r} ; all world coords
@@ -705,7 +728,11 @@ function renderScene(c,w,h,view,o){ // o: {grid,bg,sel,lineScale}
   // walls: stroke all, then fill all (union outline)
   const walls=list.filter(e=>e.type==="wall"||e.type==="awall");const bgc=o.bg;
   for(const e of walls){c.globalAlpha=e.op??1;c.strokeStyle=aci(layerOf(e.layer).color);c.lineWidth=2*ls;c.lineJoin=e.type==="awall"?"round":"miter";for(const r of wallBody(e)){tracePrim(c,{k:"p",pts:r,closed:true},T);c.stroke();}}
-  for(const e of walls){c.globalAlpha=e.op??1;c.fillStyle=mixHex(bgc,aci(layerOf(e.layer).color),.22);for(const r of wallBody(e)){tracePrim(c,{k:"p",pts:r,closed:true},T);c.fill();}}
+  // walls of the same look are filled as one shape, so joints show no seam
+  {const grp=new Map();for(const e of walls){const k=(e.op??1)+"|"+e.layer;if(!grp.has(k))grp.set(k,[]);grp.get(k).push(e);}
+    for(const es of grp.values()){c.globalAlpha=es[0].op??1;c.fillStyle=mixHex(bgc,aci(layerOf(es[0].layer).color),.22);c.beginPath();
+      for(const e of es)for(let r of wallBody(e)){let ar=0;for(let i=0;i<r.length;i++){const p=r[i],q=r[(i+1)%r.length];ar+=p[0]*q[1]-q[0]*p[1];}if(ar<0)r=r.slice().reverse();// same turning sense for all, so overlaps never cancel out
+        r.forEach((p,i)=>{const q=T(p);i?c.lineTo(q[0],q[1]):c.moveTo(q[0],q[1]);});c.closePath();}c.fill("nonzero");}}
   c.globalAlpha=1;
   for(const e of list){if(e.type!=="column")continue;c.globalAlpha=e.op??1;const col=aci(layerOf(e.layer).color);c.fillStyle=mixHex(bgc,col,.55);c.strokeStyle=col;c.lineWidth=1.5*ls;for(const pr of prims(e)){tracePrim(c,pr,T);c.fill();c.stroke();}}
   for(const e of list){if(e.type!=="text"||!e.txt)continue;c.globalAlpha=e.op??1;c.fillStyle=aci(layerOf(e.layer).color);const q=T([e.x,e.y]);c.save();c.translate(q[0],q[1]);c.rotate(vr-rad(e.ang||0));c.font="600 "+Math.max(0.5,(+e.h||30)*z)+"px 'IBM Plex Sans', system-ui, sans-serif";c.textAlign="left";c.textBaseline="alphabetic";c.fillText(e.txt,0,0);c.restore();}
