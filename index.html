@@ -256,7 +256,7 @@ svg.i{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.7;stro
 <script>
 (function(){
   if(!window.FDBridge)return;
-  window.FD_NATIVE=true;window.FD_WEBVER=parseInt('35',10)||0;
+  window.FD_NATIVE=true;window.FD_WEBVER=parseInt('36',10)||0;
   var seq=0,pend={};
   window.__fdReply=function(id,ok,payload){var p=pend[id];if(!p)return;delete pend[id];ok?p.res(payload):p.rej(payload);};
   function call(op,args){return new Promise(function(res,rej){var id=++seq;pend[id]={res:res,rej:rej};args.id=id;args.op=op;FDBridge.postMessage(JSON.stringify(args));});}
@@ -1781,7 +1781,7 @@ function fullHelp(){modal('<h2>Tam ekran bu görünümde açılmıyor</h2><p>Cla
 function scrAngle(){const a=(screen.orientation&&typeof screen.orientation.angle==="number")?screen.orientation.angle:(typeof window.orientation==="number"?window.orientation:0);return ((a%360)+360)%360;}
 let lastAng=scrAngle();
 function updUnrot(){const r=S.view.r||0;$("#btnUnrot").hidden=!(S.proj&&Math.abs(Math.sin(r/2))>1e-3);}
-function onOrient(){const a=scrAngle();let d=a-lastAng;lastAng=a;if(d&&typeof UIR!=="undefined"&&UIR.follow){UIR.off=((UIR.off+UIR.deg)%360+360)%360;setUIRot(0,true);layoutUI();kbLock();try{window.name=JSON.stringify({fd:1,base:UIR.base,off:UIR.off,s:a});}catch(e){}}if(!d||!S.proj||!SET.lockRot)return;S.view.r=((S.view.r||0)-rad(d))%(2*Math.PI);updUnrot();setTimeout(draw,50);setTimeout(draw,350);}
+function onOrient(newAng){const a=typeof newAng==="number"?((newAng%360)+360)%360:scrAngle();let d=a-lastAng;lastAng=a;if(d&&typeof UIR!=="undefined"&&UIR.follow){UIR.off=((UIR.off+UIR.deg)%360+360)%360;setUIRot(0,true);layoutUI();kbLock();try{window.name=JSON.stringify({fd:1,base:UIR.base,off:UIR.off,s:a});}catch(e){}}if(!d||!S.proj||!SET.lockRot)return;S.view.r=((S.view.r||0)-rad(d))%(2*Math.PI);updUnrot();setTimeout(draw,50);setTimeout(draw,350);}
 if(screen.orientation&&screen.orientation.addEventListener)screen.orientation.addEventListener("change",onOrient);else window.addEventListener("orientationchange",onOrient);
 $("#btnUnrot").onclick=()=>{S.view.r=0;updUnrot();draw();};
 /* ---- drop-down lists: the system picker ignores the turned menus (opens upside down), so lists open inside the app ---- */
@@ -1804,8 +1804,12 @@ function setUIRot(deg,quiet){if(deg===UIR.deg)return;const sm=document.getElemen
 /* typing while the menus are turned: the system keyboard only knows the screen, so the screen is let to
    follow the tablet once (the plan is counter-rotated by onOrient) and then locked again in the new position */
 function kbFollow(){if(!window.FDOrient||!UIR.deg||UIR.follow)return;UIR.follow=Date.now();FDOrient.postMessage("follow");
-  clearTimeout(UIR.ft);UIR.ft=setTimeout(kbLock,1800);}
-function kbLock(){if(!UIR.follow)return;clearTimeout(UIR.ft);try{FDOrient.postMessage("lock");}catch(e){}setTimeout(()=>{UIR.follow=0;},600);}
+  // a half turn (180°) of the screen may come without any event in the page: also watch the angle itself
+  clearInterval(UIR.fp);UIR.fp=setInterval(()=>{if(!UIR.follow){clearInterval(UIR.fp);return;}if(scrAngle()!==lastAng)onOrient();},100);
+  clearTimeout(UIR.ft);UIR.ft=setTimeout(kbLock,2500);}
+// the app reports the real screen turn after "follow" (before and after, in degrees)
+window.__fdRotated=function(r0,r1){if(((r1-lastAng)%360+360)%360===0)return;onOrient(r1);};
+function kbLock(){if(!UIR.follow)return;clearTimeout(UIR.ft);clearInterval(UIR.fp);try{FDOrient.postMessage("lock");}catch(e){}setTimeout(()=>{UIR.follow=0;},600);}
 document.addEventListener("focusin",e=>{const t=e.target;if(t&&(t.tagName==="TEXTAREA"||(t.tagName==="INPUT"&&!/^(checkbox|radio|range|button|submit|file|color)$/.test(t.type))))kbFollow();});
 if(window.FD_NATIVE&&window.FDLocked){
   // the turn of the menus survives a reload of the page inside the app (an update), when the screen is still the same way round
