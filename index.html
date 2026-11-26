@@ -248,7 +248,7 @@ svg.i{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.7;stro
 <script>
 (function(){
   if(!window.FDBridge)return;
-  window.FD_NATIVE=true;window.FD_WEBVER=parseInt('33',10)||0;
+  window.FD_NATIVE=true;window.FD_WEBVER=parseInt('34',10)||0;
   var seq=0,pend={};
   window.__fdReply=function(id,ok,payload){var p=pend[id];if(!p)return;delete pend[id];ok?p.res(payload):p.rej(payload);};
   function call(op,args){return new Promise(function(res,rej){var id=++seq;pend[id]={res:res,rej:rej};args.id=id;args.op=op;FDBridge.postMessage(JSON.stringify(args));});}
@@ -795,7 +795,7 @@ function snapCands(wm,ex,only){const out=[];
   else if(e.type==="circle"){out.push({k:"cen",p:[e.cx,e.cy]});[0,1,2,3].forEach(i=>out.push({k:"end",p:[e.cx+e.r*Math.cos(i*Math.PI/2),e.cy+e.r*Math.sin(i*Math.PI/2)]}));}
   else if(e.type==="column"){out.push({k:"cen",p:[e.x,e.y]});if(e.shape!=="round"){const q=colPts(e);q.forEach(p=>out.push({k:"end",p}));for(let i=0;i<4;i++)out.push({k:"mid",p:lerp(q[i],q[(i+1)%4],.5)});}else[0,1,2,3].forEach(i=>out.push({k:"end",p:[e.x+e.w/2*Math.cos(i*Math.PI/2),e.y+e.w/2*Math.sin(i*Math.PI/2)]}));}
   else if(e.type==="door"){out.push({k:"mid",p:[e.x,e.y]});}
-  else if(e.type==="stair"){if(e.kind==="custom")e.pts.forEach(p=>out.push({k:"end",p}));else if(e.kind==="sketch")(e.outlines||[]).forEach(o=>o.pts.forEach(p=>out.push({k:"end",p})));else{out.push({k:"end",p:[e.x,e.y]});if(e.kind==="spiral")out.push({k:"cen",p:[e.x,e.y]});}}
+  else if(e.type==="stair"){if(e.kind==="custom")e.pts.forEach(p=>out.push({k:"end",p}));else if(e.kind==="sketch")(e.outlines||[]).forEach(o=>o.pts.forEach(p=>out.push({k:"end",p})));else{out.push({k:"end",p:[e.x,e.y]});if(e.kind==="spiral")out.push({k:"cen",p:[e.x,e.y]});else{const b=bbox(e),u=[Math.cos(e.ang||0),Math.sin(e.ang||0)];if(Math.abs(u[0]*u[1])<1e-6)[[b[0],b[1]],[b[2],b[1]],[b[2],b[3]],[b[0],b[3]]].forEach(p=>out.push({k:"end",p}));}}}
   else if(e.type==="text"){out.push({k:"end",p:[e.x,e.y]});}
   else if(e.type==="image"){out.push({k:"end",p:[e.x,e.y]},{k:"end",p:[e.x+e.w,e.y+e.h]});}
   else if(e.type==="antet"){antRect(e).forEach(p=>out.push({k:"end",p}));}
@@ -808,6 +808,9 @@ function nearestOn(p,tol,wm){let best=null;for(const e of ents()){if(!visible(e)
     for(const s of primSegs(x)){const q=projSeg(p,s[0],s[1]).pt;const dd=dist(p,q);if(dd<tol&&(!best||dd<best.d))best={d:dd,p:q};}}}return best;}
 // Moving a selection: any of its own snap points (near or far corner, centre, mid) may land on a fixed point.
 function buildMoveSnap(){const sel=[...S.sel].map(byId).filter(Boolean);const src=snapCands(false,null,sel).filter(c=>c.k!=="grid"&&c.k!=="near");
+  // every corner of what is being moved can touch something (a stair's outline, a door's leaf ...), not only its insertion point
+  {const seen=new Set(src.map(c=>c.p[0].toFixed(2)+","+c.p[1].toFixed(2)));let n=0;
+    for(const e of sel){if(e.type==="text"||e.type==="image")continue;for(const pr of prims(e)){if(pr.ghost||pr.k==="c")continue;for(const sg of primSegs(pr))for(const q of sg){const k=q[0].toFixed(2)+","+q[1].toFixed(2);if(seen.has(k)||n>600)continue;seen.add(k);n++;src.push({k:"end",p:q.slice()});}}}}
   const tgt=snapCands(false,S.sel).filter(c=>c.k==="end"||c.k==="mid"||c.k==="cen");
   const faces=[],vw0=W(),vh0=H(),c0=s2w(-150,-150),c1=s2w(vw0+150,-150),c2=s2w(vw0+150,vh0+150),c3=s2w(-150,vh0+150),vx0=Math.min(c0[0],c1[0],c2[0],c3[0]),vx1=Math.max(c0[0],c1[0],c2[0],c3[0]),vy0=Math.min(c0[1],c1[1],c2[1],c3[1]),vy1=Math.max(c0[1],c1[1],c2[1],c3[1]);
   const addF=(a,b)=>{if(dist(a,b)<=1)return;if(Math.max(a[0],b[0])<vx0||Math.min(a[0],b[0])>vx1||Math.max(a[1],b[1])<vy0||Math.min(a[1],b[1])>vy1)return;faces.push([a,b]);};
