@@ -248,7 +248,7 @@ svg.i{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.7;stro
 <script>
 (function(){
   if(!window.FDBridge)return;
-  window.FD_NATIVE=true;window.FD_WEBVER=parseInt('28',10)||0;
+  window.FD_NATIVE=true;window.FD_WEBVER=parseInt('29',10)||0;
   var seq=0,pend={};
   window.__fdReply=function(id,ok,payload){var p=pend[id];if(!p)return;delete pend[id];ok?p.res(payload):p.rej(payload);};
   function call(op,args){return new Promise(function(res,rej){var id=++seq;pend[id]={res:res,rej:rej};args.id=id;args.op=op;FDBridge.postMessage(JSON.stringify(args));});}
@@ -499,7 +499,11 @@ function stairLocal(e){const W=+e.width||100,n=Math.max(2,Math.round(+e.n||16)),
   const Ln=(a,b,dash,st)=>{if(Math.hypot(b[0]-a[0],b[1]-a[1])<0.01)return;const o={k:"l",a:[a[0],a[1]*m],b:[b[0],b[1]*m]};if(dash)o.dash=true;if(st!=null)o.st=st;P.push(o);};
   const arrow=(pts)=>{R(pts,false);const a=pts[pts.length-2],b=pts[pts.length-1];const ang=Math.atan2(b[1]-a[1],b[0]-a[0]),s=14;R([[b[0]-s*Math.cos(ang-0.45),b[1]-s*Math.sin(ang-0.45)],b,[b[0]-s*Math.cos(ang+0.45),b[1]-s*Math.sin(ang+0.45)]],false);};
   // walk line: a small circle where the climb starts, an arrow head where it arrives
-  const walk=pts=>{const a=pts[0],b=pts[1],L=Math.hypot(b[0]-a[0],b[1]-a[1])||1,r=6;P.push({k:"c",c:[a[0],a[1]*m],r});arrow([[a[0]+(b[0]-a[0])/L*r,a[1]+(b[1]-a[1])/L*r]].concat(pts.slice(1)));};
+  const walk=pts=>{const a=pts[0],b=pts[1],L=Math.hypot(b[0]-a[0],b[1]-a[1])||1,r=6,C=[a[0],a[1]*m];
+    // the start circle stays empty: lines running through it (the first step) are cut at its edge
+    for(let i=P.length-1;i>=0;i--){const x=P[i];if(x.k!=="l")continue;const ts=circInter(x.a,x.b,C,r);if(ts.length<2||ts[1]<=0||ts[0]>=1)continue;const keep=[];if(ts[0]>1e-6)keep.push([0,ts[0]]);if(ts[1]<1-1e-6)keep.push([ts[1],1]);
+      P.splice(i,1,...keep.map(([t0,t1])=>Object.assign({},x,{a:lerp(x.a,x.b,t0),b:lerp(x.a,x.b,t1)})));}
+    P.push({k:"c",c:C,r});arrow([[a[0]+(b[0]-a[0])/L*r,a[1]+(b[1]-a[1])/L*r]].concat(pts.slice(1)));};
   // The plan is cut at 3/4 of the climb: what lies beyond belongs to the floor above and is drawn dashed, behind a slanted break line.
   // One flight: O = start corner on the inner side, d = climb direction, c = across (inner -> outer), k steps, st0 = steps climbed before it.
   const KC=0.75*n;
