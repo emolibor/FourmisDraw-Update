@@ -248,7 +248,7 @@ svg.i{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.7;stro
 <script>
 (function(){
   if(!window.FDBridge)return;
-  window.FD_NATIVE=true;window.FD_WEBVER=parseInt('29',10)||0;
+  window.FD_NATIVE=true;window.FD_WEBVER=parseInt('30',10)||0;
   var seq=0,pend={};
   window.__fdReply=function(id,ok,payload){var p=pend[id];if(!p)return;delete pend[id];ok?p.res(payload):p.rej(payload);};
   function call(op,args){return new Promise(function(res,rej){var id=++seq;pend[id]={res:res,rej:rej};args.id=id;args.op=op;FDBridge.postMessage(JSON.stringify(args));});}
@@ -1572,7 +1572,8 @@ function buildDXF(threeD,outl){const o=[];const P=(c,v)=>{o.push(String(c));o.pu
     if(e.type==="text"){if(e.txt)TXT(lay,[e.x,e.y],+e.h||30,dxfText(e.txt),e.ang||0,true);continue;}
     if(e.type==="antet"){const t=antT(e);for(const [fc,rings] of t.fills)HATCH(lay,fc,rings.map(r=>r.map((v,i)=>v+(i%2?e.y:e.x))));for(const pr of antPrims(e))LINE(lay,pr.a,pr.b,0,0);
       for(const x of t.texts)TXS(lay,[e.x+x[1],e.y+x[2]],x[3],dxfText(x[0]),x[4],{l:0,c:1,r:2}[x[5]],ANTET_STY[x[6]||"a"]);
-      for(const f of t.fields){const v=antVal(e,f);if(!v)continue;const fp=antFieldPos(e,f,v);TXS(lay,fp.p,fp.h,dxfText(v),fp.wf,1,ANTET_STY[f.f||"a"]);}continue;}
+      // an empty field still gets a "--" text in its cell (same font, size and layer), ready to double-click and type over in AutoCAD
+      for(const f of t.fields){const v=antVal(e,f)||"--";const fp=antFieldPos(e,f,v);TXS(lay,fp.p,fp.h,dxfText(v),fp.wf,1,ANTET_STY[f.f||"a"]);}continue;}
     if(e.type==="column"){const hc=threeD?(+e.height||280):0;if(e.shape==="round"){CIRC(lay,[e.x,e.y],e.w/2,hc);}
       else{PL(lay,colPts(e),true,0,hc);}continue;}
     if(e.type==="circle"){CIRC(lay,[e.cx,e.cy],e.r,0);continue;}
