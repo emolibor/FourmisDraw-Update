@@ -1,6 +1,6 @@
 {
   "web": 36,
-  "apk": 7,
+  "apk": 9,
   "apkUrl": "https://raw.githubusercontent.com/emolibor/FourmisDraw-Update/main/FourmisDraw.apk",
-  "notes": "FourmisDraw yeni sürüm: tablet çevrilmişken yazı yazınca klavye senin baktığın yönde açılır. Güncelle deyip kur; projelerin silinmez."
+  "notes": "FourmisDraw yeni sürüm: tablet ters çevrilmişken yazı yazınca hem klavye hem menüler senin yönünde açılır. Güncelle deyip kur; projelerin silinmez."
 }
