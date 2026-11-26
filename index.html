@@ -172,6 +172,14 @@ svg.i{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.7;stro
 .check{display:flex;align-items:center;gap:10px;min-height:40px}
 .check input{width:20px;height:20px;accent-color:var(--accent)}
 #v3d{position:fixed;inset:0;z-index:45;background:var(--canvas)}
+/* drop-down lists open inside the app (they turn with the menus, unlike the system picker) */
+.selw{position:relative;display:inline-block;min-width:0;max-width:100%;cursor:pointer}
+.side .row .selw,.lay .selw,.xc-row .selw,.mrow .selw{display:block}
+.selw>select{pointer-events:none;width:100%}
+.selm{gap:6px;width:min(380px,100%);max-height:min(560px,100%)}
+.selm h2{font-size:16px!important}
+.selo{min-height:48px;text-align:left;padding:8px 14px;border:1px solid var(--line);border-radius:10px;background:var(--surface-2);font-weight:500;font-size:15px}
+.selo[aria-selected="true"]{border-color:var(--accent);color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
 #v3d canvas{display:block;width:100%;height:100%;touch-action:none}
 #v3d .float{z-index:2}
 @media (max-width:720px){
@@ -248,7 +256,7 @@ svg.i{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.7;stro
 <script>
 (function(){
   if(!window.FDBridge)return;
-  window.FD_NATIVE=true;window.FD_WEBVER=parseInt('34',10)||0;
+  window.FD_NATIVE=true;window.FD_WEBVER=parseInt('35',10)||0;
   var seq=0,pend={};
   window.__fdReply=function(id,ok,payload){var p=pend[id];if(!p)return;delete pend[id];ok?p.res(payload):p.rej(payload);};
   function call(op,args){return new Promise(function(res,rej){var id=++seq;pend[id]={res:res,rej:rej};args.id=id;args.op=op;FDBridge.postMessage(JSON.stringify(args));});}
@@ -259,7 +267,7 @@ svg.i{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.7;stro
   async function toB64(data){var buf;if(data instanceof Blob)buf=new Uint8Array(await data.arrayBuffer());else if(typeof data==='string')buf=new TextEncoder().encode(data);else buf=new Uint8Array(data.buffer||data);var s='',CH=0x8000;for(var i=0;i<buf.length;i+=CH)s+=String.fromCharCode.apply(null,buf.subarray(i,i+CH));return btoa(s);}
   var downloads={save:async function(o){await call('save',{filename:o.filename,b64:await toB64(o.data)});return {status:'saved'};}};
   window.claude={use:async function(n){return n==='db'?db:n==='downloads'?downloads:null;}};
-  window.__fdBack=function(){var v3=document.querySelector('#v3close');if(v3){v3.click();return;}var m=document.querySelector('#scrim');if(m){document.querySelector('#modalRoot').innerHTML='';return;}var x=document.querySelector('#ctxX');if(x){x.click();return;}var h=document.querySelector('#btnHome');if(h&&!document.querySelector('#editor').hidden)h.click();};
+  window.__fdBack=function(){var sm=document.querySelector('#selMenu');if(sm){sm.remove();return;}var v3=document.querySelector('#v3close');if(v3){v3.click();return;}var m=document.querySelector('#scrim');if(m){document.querySelector('#modalRoot').innerHTML='';return;}var x=document.querySelector('#ctxX');if(x){x.click();return;}var h=document.querySelector('#btnHome');if(h&&!document.querySelector('#editor').hidden)h.click();};
 })();
 </script>
 <script>
@@ -1773,16 +1781,26 @@ function fullHelp(){modal('<h2>Tam ekran bu görünümde açılmıyor</h2><p>Cla
 function scrAngle(){const a=(screen.orientation&&typeof screen.orientation.angle==="number")?screen.orientation.angle:(typeof window.orientation==="number"?window.orientation:0);return ((a%360)+360)%360;}
 let lastAng=scrAngle();
 function updUnrot(){const r=S.view.r||0;$("#btnUnrot").hidden=!(S.proj&&Math.abs(Math.sin(r/2))>1e-3);}
-function onOrient(){const a=scrAngle();let d=a-lastAng;lastAng=a;if(d&&typeof UIR!=="undefined"&&UIR.follow){UIR.off=((UIR.off+UIR.deg)%360+360)%360;setUIRot(0,true);layoutUI();kbLock();}if(!d||!S.proj||!SET.lockRot)return;S.view.r=((S.view.r||0)-rad(d))%(2*Math.PI);updUnrot();setTimeout(draw,50);setTimeout(draw,350);}
+function onOrient(){const a=scrAngle();let d=a-lastAng;lastAng=a;if(d&&typeof UIR!=="undefined"&&UIR.follow){UIR.off=((UIR.off+UIR.deg)%360+360)%360;setUIRot(0,true);layoutUI();kbLock();try{window.name=JSON.stringify({fd:1,base:UIR.base,off:UIR.off,s:a});}catch(e){}}if(!d||!S.proj||!SET.lockRot)return;S.view.r=((S.view.r||0)-rad(d))%(2*Math.PI);updUnrot();setTimeout(draw,50);setTimeout(draw,350);}
 if(screen.orientation&&screen.orientation.addEventListener)screen.orientation.addEventListener("change",onOrient);else window.addEventListener("orientationchange",onOrient);
 $("#btnUnrot").onclick=()=>{S.view.r=0;updUnrot();draw();};
+/* ---- drop-down lists: the system picker ignores the turned menus (opens upside down), so lists open inside the app ---- */
+function openSelMenu(sel){const old=document.getElementById("selMenu");if(old)old.remove();const ui=$("#ui");const sc=document.createElement("div");sc.className="scrim";sc.id="selMenu";
+  const row=sel.closest(".row"),title=sel.getAttribute("aria-label")||(row&&row.firstElementChild&&row.firstElementChild!==sel.parentNode?row.firstElementChild.textContent:"")||(row?row.firstChild.textContent:"");
+  sc.innerHTML='<div class="modal selm" role="listbox">'+(title&&title.trim()?'<h2>'+esc(title.trim())+'</h2>':'')+[...sel.options].map((o,i)=>'<button type="button" class="selo" role="option" data-i="'+i+'" aria-selected="'+(i===sel.selectedIndex)+'"'+(o.disabled?" disabled":"")+'>'+esc(o.textContent)+'</button>').join("")+'</div>';
+  sc.addEventListener("click",e=>{const b=e.target.closest(".selo");if(b){const i=+b.dataset.i;sc.remove();if(i!==sel.selectedIndex){sel.selectedIndex=i;sel.dispatchEvent(new Event("input",{bubbles:true}));sel.dispatchEvent(new Event("change",{bubbles:true}));}return;}if(e.target===sc)sc.remove();});
+  ui.appendChild(sc);const cur=sc.querySelector('.selo[aria-selected="true"]');if(cur)cur.scrollIntoView({block:"nearest"});}
+function wrapSelects(root){root.querySelectorAll("select:not([data-fdw])").forEach(sel=>{sel.setAttribute("data-fdw","1");sel.tabIndex=-1;const w=document.createElement("span");w.className="selw";sel.parentNode.insertBefore(w,sel);w.appendChild(sel);
+  w.addEventListener("click",e=>{e.preventDefault();e.stopPropagation();if(!sel.disabled)openSelMenu(sel);});});}
+new MutationObserver(ms=>{for(const m of ms)for(const n of m.addedNodes)if(n.nodeType===1&&(n.tagName==="SELECT"||n.querySelector("select")))wrapSelects(n.tagName==="SELECT"?n.parentNode:n);}).observe($("#ui"),{childList:true,subtree:true});
+wrapSelects($("#ui"));
 /* ---- keep the canvas only while a project is open ---- */
 new MutationObserver(()=>{cv.hidden=$("#editor").hidden;if(!cv.hidden)draw();}).observe($("#editor"),{attributes:true,attributeFilter:["hidden"]});
 /* ---- app (screen locked): the plan never turns; only the menus follow the tablet ---- */
 var UIR={deg:0,base:null,q:null,off:0,follow:0};
 function layoutUI(){const ui=$("#ui"),W=window.innerWidth,H=window.innerHeight,side=Math.abs(UIR.deg)%180===90;const w=side?H:W,h=side?W:H;
   ui.style.width=w+"px";ui.style.height=h+"px";ui.style.left=((W-w)/2)+"px";ui.style.top=((H-h)/2)+"px";ui.style.transform=UIR.deg?"rotate("+UIR.deg+"deg)":"";}
-function setUIRot(deg,quiet){if(deg===UIR.deg)return;const ui=$("#ui");if(!quiet)ui.classList.add("anim");UIR.deg=deg;layoutUI();clearTimeout(UIR.t);UIR.t=setTimeout(()=>ui.classList.remove("anim"),400);if(S.proj)draw();}
+function setUIRot(deg,quiet){if(deg===UIR.deg)return;const sm=document.getElementById("selMenu");if(sm)sm.remove();const ui=$("#ui");if(!quiet)ui.classList.add("anim");UIR.deg=deg;layoutUI();clearTimeout(UIR.t);UIR.t=setTimeout(()=>ui.classList.remove("anim"),400);if(S.proj)draw();}
 /* typing while the menus are turned: the system keyboard only knows the screen, so the screen is let to
    follow the tablet once (the plan is counter-rotated by onOrient) and then locked again in the new position */
 function kbFollow(){if(!window.FDOrient||!UIR.deg||UIR.follow)return;UIR.follow=Date.now();FDOrient.postMessage("follow");
@@ -1790,9 +1808,14 @@ function kbFollow(){if(!window.FDOrient||!UIR.deg||UIR.follow)return;UIR.follow=
 function kbLock(){if(!UIR.follow)return;clearTimeout(UIR.ft);try{FDOrient.postMessage("lock");}catch(e){}setTimeout(()=>{UIR.follow=0;},600);}
 document.addEventListener("focusin",e=>{const t=e.target;if(t&&(t.tagName==="TEXTAREA"||(t.tagName==="INPUT"&&!/^(checkbox|radio|range|button|submit|file|color)$/.test(t.type))))kbFollow();});
 if(window.FD_NATIVE&&window.FDLocked){
-  window.addEventListener("devicemotion",e=>{const g=e.accelerationIncludingGravity;if(!g||g.x==null)return;const gx=g.x,gy=g.y;if(Math.hypot(gx,gy)<4)return;// lying flat: keep as is
-    const a=Math.atan2(gx,gy)*180/Math.PI;let q=Math.round(a/90)*90;if(Math.abs(a-q)>30)return;q=((q%360)+360)%360;// dead zone between quadrants
-    if(UIR.base==null)UIR.base=q;if(UIR.follow)return;if(!SET.lockRot){setUIRot(0);return;}let d=((q-UIR.base-UIR.off)%720+720)%360;if(d===270)d=-90;setUIRot(d);});
+  // the turn of the menus survives a reload of the page inside the app (an update), when the screen is still the same way round
+  try{const k=JSON.parse(window.name||"{}");if(k.fd===1&&k.s===scrAngle()){UIR.base=k.base;UIR.off=k.off||0;}}catch(e){}
+  const keepRot=()=>{try{window.name=JSON.stringify({fd:1,base:UIR.base,off:UIR.off,s:scrAngle()});}catch(e){}};
+  window.addEventListener("devicemotion",e=>{const g=e.accelerationIncludingGravity;if(!g||g.x==null)return;const gx=g.x,gy=g.y;if(Math.hypot(gx,gy)<5.5){UIR.cand=null;return;}// (nearly) flat on the table: keep as is
+    const a=Math.atan2(gx,gy)*180/Math.PI;let q=Math.round(a/90)*90;if(Math.abs(a-q)>25)return;q=((q%360)+360)%360;// dead zone between quadrants
+    if(UIR.base==null){UIR.base=q;keepRot();}if(UIR.follow)return;if(!SET.lockRot){setUIRot(0);return;}let d=((q-UIR.base-UIR.off)%720+720)%360;if(d===270)d=-90;
+    // only a turn that is held for a moment counts; carrying or tapping the tablet does not spin the menus
+    if(d===UIR.deg){UIR.cand=null;return;}const now=Date.now();if(UIR.cand!==d){UIR.cand=d;UIR.candT=now;return;}if(now-UIR.candT<700)return;UIR.cand=null;setUIRot(d);keepRot();});
   window.addEventListener("resize",layoutUI);}
 /* ================= boot ================= */
 applyTheme();renderHome();
