@@ -248,7 +248,7 @@ svg.i{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.7;stro
 <script>
 (function(){
   if(!window.FDBridge)return;
-  window.FD_NATIVE=true;window.FD_WEBVER=parseInt('32',10)||0;
+  window.FD_NATIVE=true;window.FD_WEBVER=parseInt('33',10)||0;
   var seq=0,pend={};
   window.__fdReply=function(id,ok,payload){var p=pend[id];if(!p)return;delete pend[id];ok?p.res(payload):p.rej(payload);};
   function call(op,args){return new Promise(function(res,rej){var id=++seq;pend[id]={res:res,rej:rej};args.id=id;args.op=op;FDBridge.postMessage(JSON.stringify(args));});}
@@ -809,7 +809,11 @@ function nearestOn(p,tol,wm){let best=null;for(const e of ents()){if(!visible(e)
 // Moving a selection: any of its own snap points (near or far corner, centre, mid) may land on a fixed point.
 function buildMoveSnap(){const sel=[...S.sel].map(byId).filter(Boolean);const src=snapCands(false,null,sel).filter(c=>c.k!=="grid"&&c.k!=="near");
   const tgt=snapCands(false,S.sel).filter(c=>c.k==="end"||c.k==="mid"||c.k==="cen");
-  const faces=[];for(const e of ents()){if(S.sel.has(e.id)||!visible(e))continue;if(e.type==="wall")wallPolys(e).forEach(r=>{for(let i=0;i<4;i++)faces.push([r[i],r[(i+1)%4]]);});else if(e.type==="line")faces.push([[e.x1,e.y1],[e.x2,e.y2]]);else if(e.type==="pline"||e.type==="rect"){const P=e.pts;for(let i=0;i<P.length-(e.closed?0:1);i++)faces.push([P[i],P[(i+1)%P.length]]);}}
+  const faces=[],vw0=W(),vh0=H(),c0=s2w(-150,-150),c1=s2w(vw0+150,-150),c2=s2w(vw0+150,vh0+150),c3=s2w(-150,vh0+150),vx0=Math.min(c0[0],c1[0],c2[0],c3[0]),vx1=Math.max(c0[0],c1[0],c2[0],c3[0]),vy0=Math.min(c0[1],c1[1],c2[1],c3[1]),vy1=Math.max(c0[1],c1[1],c2[1],c3[1]);
+  const addF=(a,b)=>{if(dist(a,b)<=1)return;if(Math.max(a[0],b[0])<vx0||Math.min(a[0],b[0])>vx1||Math.max(a[1],b[1])<vy0||Math.min(a[1],b[1])>vy1)return;faces.push([a,b]);};
+  for(const e of ents()){if(S.sel.has(e.id)||!visible(e)||e.type==="image"||e.type==="text")continue;
+    if(e.type==="wall"||e.type==="awall"){for(const r of wallBody(e))for(let i=0;i<r.length;i++)addF(r[i],r[(i+1)%r.length]);continue;}
+    for(const pr of prims(e)){if(pr.ghost||pr.k==="c")continue;for(const sg of primSegs(pr))addF(sg[0],sg[1]);}}
   // points of other elements on screen: an ortho move lines the selection up with them (imaginary alignment line)
   const vw=W(),vh=H();const hz=tgt.filter(c=>c.k!=="mid").filter(c=>{const q=w2s(c.p);return q[0]>-80&&q[1]>-80&&q[0]<vw+80&&q[1]<vh+80;});
   return {src,tgt,hz,faces:faces.filter(f=>dist(f[0],f[1])>1),last:null,lastA:null};}
@@ -833,6 +837,23 @@ function alignTo(q,line,refs,tol){if(!refs||!refs.length)return null;const L=[];
   if(best)return best;
   for(const l of L){const w=[q[0]-l.o[0],q[1]-l.o[1]];const t=w[0]*l.u[0]+w[1]*l.u[1];const X=[l.o[0]+l.u[0]*t,l.o[1]+l.u[1]*t];const d=dist(X,q);if(d<tol&&dist(X,l.o)>tol&&(!best||d<best.d))best={d,p:X,refs:[l.o]};}
   return best;}
+// Contact with any face (wall side, line, polyline, edge of another element) while moving a selection.
+// ortho: the move only runs along its axis, so it stops where a selection point reaches a face lying across that axis.
+// free: the nearest face wins; if another face crossing it is also close, the point sits on both (into the corner).
+function faceContact(mv,d,tol){if(!mv.faces||!mv.faces.length)return null;const T=tol*0.8;
+  const nf=f=>{const L=dist(f[0],f[1]),u=[(f[1][0]-f[0][0])/L,(f[1][1]-f[0][1])/L];return {u,n:[-u[1],u[0]],L};};
+  if(S.ortho){const ax=Math.abs(d[0])>=Math.abs(d[1])?0:1,mu=ax?[0,1]:[1,0];let b=null;
+    for(const s of mv.src){const q=[s.p[0]+d[0],s.p[1]+d[1]];for(const f of mv.faces){const g=nf(f),nu=g.n[0]*mu[0]+g.n[1]*mu[1];if(Math.abs(nu)<0.2)continue;
+      const sd=g.n[0]*(q[0]-f[0][0])+g.n[1]*(q[1]-f[0][1]),t=-sd/nu;if(Math.abs(t)>=T||(b&&Math.abs(t)>=b.dd))continue;const p=[q[0]+mu[0]*t,q[1]+mu[1]*t],tt=((p[0]-f[0][0])*g.u[0]+(p[1]-f[0][1])*g.u[1])/g.L;if(tt<-0.0005||tt>1.0005)continue;b={dd:Math.abs(t),s,t,p,f,g};}}
+    if(!b)return null;const nd=[d[0]+mu[0]*b.t,d[1]+mu[1]*b.t];return {d:nd,p:b.p,dd:b.dd,acq:{p:b.p,src:b.s.p,dirs:[b.g.n]}};}
+  const cs=[];for(const s of mv.src){const q=[s.p[0]+d[0],s.p[1]+d[1]];for(const f of mv.faces){const pr=projSeg(q,f[0],f[1]);if(pr.t<=0.001||pr.t>=0.999)continue;const dd=dist(q,pr.pt);if(dd<T)cs.push({dd,s,q,pt:pr.pt,f,g:nf(f)});}}
+  if(!cs.length)return null;cs.sort((a,b)=>a.dd-b.dd);const A=cs[0];
+  // a second face, across the first one, reached by the same point: go into that corner
+  let cb=null;const cl=cs.slice(0,80);for(let i=0;i<cl.length;i++)for(let j=i+1;j<cl.length;j++){const P1=cl[i],P2=cl[j];if(P1.s!==P2.s||Math.abs(P1.g.u[0]*P2.g.u[1]-P1.g.u[1]*P2.g.u[0])<0.3)continue;
+    const n1=P1.g.n,n2=P2.g.n,r1=-(n1[0]*(P1.q[0]-P1.f[0][0])+n1[1]*(P1.q[1]-P1.f[0][1])),r2=-(n2[0]*(P1.q[0]-P2.f[0][0])+n2[1]*(P1.q[1]-P2.f[0][1])),det=n1[0]*n2[1]-n1[1]*n2[0];
+    const sh=[(r1*n2[1]-r2*n1[1])/det,(n1[0]*r2-n2[0]*r1)/det],m=Math.hypot(sh[0],sh[1]);if(m>T*1.5||(cb&&m>=cb.m))continue;cb={m,sh,q:P1.q};}
+  if(cb)return {d:[d[0]+cb.sh[0],d[1]+cb.sh[1]],p:[cb.q[0]+cb.sh[0],cb.q[1]+cb.sh[1]],dd:A.dd,acq:null};
+  return {d:[A.pt[0]-A.s.p[0],A.pt[1]-A.s.p[1]],p:A.pt,dd:A.dd,acq:{p:A.pt,src:A.s.p,dirs:[A.g.n]}};}
 function moveSnap(mv,d){const tol=16/S.view.z;let best=null;
   if(S.ortho){d=Math.abs(d[0])>=Math.abs(d[1])?[d[0],0]:[0,d[1]];}
   for(const s of mv.src){const q=[s.p[0]+d[0],s.p[1]+d[1]];
@@ -842,9 +863,8 @@ function moveSnap(mv,d){const tol=16/S.view.z;let best=null;
   if(!best){const refs=(S.track||[]).filter(R=>R.src);let al=null,srcP=null;
     for(const R of refs){const q=[R.src[0]+d[0],R.src[1]+d[1]];const line=S.ortho?{o:R.src,u:Math.abs(d[0])>=Math.abs(d[1])?[1,0]:[0,1]}:null;const a=alignTo(q,line,[R],R.lock?tol*2.5:tol);if(a&&(!al||a.d<al.d)){al=a;srcP=R.src;}}
     // touching a wall face / line: sit flush on it and pick up the line perpendicular to it
-    let fc=null;if(mv.faces)for(const s of mv.src){const q=[s.p[0]+d[0],s.p[1]+d[1]];for(const f of mv.faces){const pr=projSeg(q,f[0],f[1]);if(pr.t<=0.001||pr.t>=0.999)continue;const dd=dist(q,pr.pt);if(dd<tol*0.8&&(!fc||dd<fc.dd))fc={dd,s,pt:pr.pt,f};}}
-    if(fc&&(!al||fc.dd<al.d*0.5)){const L=dist(fc.f[0],fc.f[1]),u=[(fc.f[1][0]-fc.f[0][0])/L,(fc.f[1][1]-fc.f[0][1])/L];scheduleAcq(fc.pt,fc.s.p,[[-u[1],u[0]]],true);
-      return {d:[fc.pt[0]-fc.s.p[0],fc.pt[1]-fc.s.p[1]],snap:{k:"near",p:fc.pt}};}
+    const fcr=faceContact(mv,d,tol);
+    if(fcr&&(!al||fcr.dd<al.d*0.5)){if(fcr.acq)scheduleAcq(fcr.acq.p,fcr.acq.src,fcr.acq.dirs,true);return {d:fcr.d,snap:{k:"near",p:fcr.p}};}
     cancelAcq();
     if(al)return {d:[al.p[0]-srcP[0],al.p[1]-srcP[1]],snap:{k:"track",p:al.p,refs:al.refs}};
     if(S.ortho){const oa=orthoAlign(mv,d);if(oa)return oa;}
